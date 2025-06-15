@@ -9,22 +9,10 @@
       <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
     </TestPlan>
     <hashTree>
-      <CSVDataSet guiclass="TestBeanGUI" testclass="CSVDataSet" testname="CSV Data Set Config">
-        <stringProp name="filename">/Users/andrei/Developer/tweebyte/testing/user_data2.csv</stringProp>
-        <stringProp name="fileEncoding"></stringProp>
-        <stringProp name="variableNames">username,email,biography,password,birthdate</stringProp>
-        <boolProp name="ignoreFirstLine">true</boolProp>
-        <stringProp name="delimiter">,</stringProp>
-        <boolProp name="quotedData">false</boolProp>
-        <boolProp name="recycle">false</boolProp>
-        <boolProp name="stopThread">true</boolProp>
-        <stringProp name="shareMode">shareMode.all</stringProp>
-      </CSVDataSet>
-      <hashTree/>
       <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Thread Group">
-        <intProp name="ThreadGroup.num_threads">500</intProp>
+        <intProp name="ThreadGroup.num_threads">1000</intProp>
         <intProp name="ThreadGroup.ramp_time">60</intProp>
-        <longProp name="ThreadGroup.duration">60</longProp>
+        <longProp name="ThreadGroup.duration">180</longProp>
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
         <boolProp name="ThreadGroup.scheduler">true</boolProp>
         <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
@@ -37,61 +25,36 @@
         <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="HTTP Request">
           <stringProp name="HTTPSampler.domain">192.168.1.222</stringProp>
           <stringProp name="HTTPSampler.port">9091</stringProp>
-          <stringProp name="HTTPSampler.path">/auth/register</stringProp>
+          <stringProp name="HTTPSampler.path">/auth/login</stringProp>
           <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
           <stringProp name="HTTPSampler.method">POST</stringProp>
           <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
-          <boolProp name="HTTPSampler.DO_MULTIPART_POST">true</boolProp>
-          <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
-          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="User Defined Variables">
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
             <collectionProp name="Arguments.arguments">
-              <elementProp name="userName" elementType="HTTPArgument">
+              <elementProp name="" elementType="HTTPArgument">
                 <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                <stringProp name="Argument.value">${username}</stringProp>
+                <stringProp name="Argument.value">{&#xd;
+	&quot;email&quot;: &quot;test@test.com&quot;,&#xd;
+	&quot;password&quot;: &quot;testpw&quot;&#xd;
+}&#xd;
+</stringProp>
                 <stringProp name="Argument.metadata">=</stringProp>
-                <boolProp name="HTTPArgument.use_equals">true</boolProp>
-                <stringProp name="Argument.name">userName</stringProp>
-              </elementProp>
-              <elementProp name="email" elementType="HTTPArgument">
-                <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                <stringProp name="Argument.value">${email}</stringProp>
-                <stringProp name="Argument.metadata">=</stringProp>
-                <boolProp name="HTTPArgument.use_equals">true</boolProp>
-                <stringProp name="Argument.name">email</stringProp>
-              </elementProp>
-              <elementProp name="password" elementType="HTTPArgument">
-                <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                <stringProp name="Argument.value">${password}</stringProp>
-                <stringProp name="Argument.metadata">=</stringProp>
-                <boolProp name="HTTPArgument.use_equals">true</boolProp>
-                <stringProp name="Argument.name">password</stringProp>
-              </elementProp>
-              <elementProp name="birthDate" elementType="HTTPArgument">
-                <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                <stringProp name="Argument.value">${birthdate}</stringProp>
-                <stringProp name="Argument.metadata">=</stringProp>
-                <boolProp name="HTTPArgument.use_equals">true</boolProp>
-                <stringProp name="Argument.name">birthDate</stringProp>
-                <stringProp name="HTTPArgument.content_type">text/plain</stringProp>
-              </elementProp>
-              <elementProp name="biography" elementType="HTTPArgument">
-                <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                <stringProp name="Argument.value">${biography}</stringProp>
-                <stringProp name="Argument.metadata">=</stringProp>
-                <boolProp name="HTTPArgument.use_equals">true</boolProp>
-                <stringProp name="Argument.name">biography</stringProp>
-              </elementProp>
-              <elementProp name="isPrivate" elementType="HTTPArgument">
-                <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                <stringProp name="Argument.value">true</stringProp>
-                <stringProp name="Argument.metadata">=</stringProp>
-                <boolProp name="HTTPArgument.use_equals">true</boolProp>
-                <stringProp name="Argument.name">isPrivate</stringProp>
               </elementProp>
             </collectionProp>
           </elementProp>
         </HTTPSamplerProxy>
-        <hashTree/>
+        <hashTree>
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP Header Manager">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">Content-Type</stringProp>
+                <stringProp name="Header.value">application/json</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree/>
+        </hashTree>
         <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report" enabled="false">
           <boolProp name="ResultCollector.error_logging">false</boolProp>
           <objProp>

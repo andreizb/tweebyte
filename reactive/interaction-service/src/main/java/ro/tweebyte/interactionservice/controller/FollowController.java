@@ -52,13 +52,10 @@ public class FollowController {
         return followService.getFollowRequests(userDetails.getUserId());
     }
 
-//    @PostMapping("/{followedId}")
     @PostMapping("/{userId}/{followedId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-//    public Mono<FollowDto> follow(@AuthenticationPrincipal CustomUserDetails userDetails,
     public Mono<FollowDto> follow(@PathVariable(value = "userId") UUID userId,
                                                @PathVariable(value = "followedId") UUID followedId) {
-//        return followService.follow(userDetails.getUserId(), followedId);
         return followService.follow(userId, followedId);
     }
 

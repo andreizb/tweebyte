@@ -1,5 +1,6 @@
 package ro.tweebyte.interactionservice.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -13,17 +14,18 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserService {
 
-    private static final String USER_SUMMARY_KEY_PREFIX = "users:";
+    private static final String USER_SUMMARY_KEY_PREFIX = "users::";
 
     private final UserClient userClient;
     private final ReactiveRedisTemplate<String, Object> redisTemplate;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public Mono<UserDto> getUserSummary(UUID userId) {
         String key = USER_SUMMARY_KEY_PREFIX + userId;
         return redisTemplate.opsForValue().get(key)
-                .cast(UserDto.class)
-                .switchIfEmpty(userClient.getUserSummary(userId)
-                        .doOnNext(userDto -> redisTemplate.opsForValue().set(key, userDto)));
+            .map(o -> objectMapper.convertValue(o, UserDto.class))
+            .switchIfEmpty(userClient.getUserSummary(userId)
+                .doOnNext(userDto -> redisTemplate.opsForValue().set(key, userDto)));
     }
 
 }

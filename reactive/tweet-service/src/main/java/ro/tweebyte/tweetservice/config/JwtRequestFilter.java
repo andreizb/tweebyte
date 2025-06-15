@@ -31,14 +31,15 @@ public class JwtRequestFilter implements WebFilter {
     @Override
     @NonNull
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        return Mono.justOrEmpty(exchange.getRequest().getHeaders().getFirst("Authorization"))
-            .filter(header -> header.startsWith("Bearer "))
-            .map(header -> header.substring(7))
-            .flatMap(this::authenticate)
-            .defaultIfEmpty(new AnonymousAuthenticationToken("key", "anonymousUser", AuthorityUtils.createAuthorityList("ROLE_ANONYMOUS")))
-            .flatMap(authentication -> chain.filter(exchange)
-                .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication))
-            );
+//        return Mono.justOrEmpty(exchange.getRequest().getHeaders().getFirst("Authorization"))
+//            .filter(header -> header.startsWith("Bearer "))
+//            .map(header -> header.substring(7))
+//            .flatMap(this::authenticate)
+//            .defaultIfEmpty(new AnonymousAuthenticationToken("key", "anonymousUser", AuthorityUtils.createAuthorityList("ROLE_ANONYMOUS")))
+//            .flatMap(authentication -> chain.filter(exchange)
+//                .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication))
+//            );
+        return chain.filter(exchange);
     }
 
     private Mono<Authentication> authenticate(String jwtToken) {

@@ -20,7 +20,7 @@
       </CSVDataSet>
       <hashTree/>
       <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Thread Group">
-        <intProp name="ThreadGroup.num_threads">50</intProp>
+        <intProp name="ThreadGroup.num_threads">1000</intProp>
         <intProp name="ThreadGroup.ramp_time">60</intProp>
         <longProp name="ThreadGroup.duration">180</longProp>
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
@@ -33,7 +33,7 @@
       </ThreadGroup>
       <hashTree>
         <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="HTTP Request">
-          <stringProp name="HTTPSampler.domain">192.168.1.167</stringProp>
+          <stringProp name="HTTPSampler.domain">localhost</stringProp>
           <stringProp name="HTTPSampler.port">9092</stringProp>
           <stringProp name="HTTPSampler.path">/tweets/${tweet_id}</stringProp>
           <boolProp name="HTTPSampler.follow_redirects">true</boolProp>

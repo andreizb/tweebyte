@@ -3,7 +3,6 @@ package ro.tweebyte.userservice.service;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import ro.tweebyte.userservice.client.InteractionClient;
 import ro.tweebyte.userservice.client.TweetClient;
@@ -69,8 +68,7 @@ public class UserService {
     public CompletableFuture<UserDto> getUserSummary(UUID userId) {
         return CompletableFuture.supplyAsync(
             () -> userRepository.findById(userId)
-                .orElseThrow(() -> new UserNotFoundException("User not found for id: " + userId)),
-            executorService
+                .orElseThrow(() -> new UserNotFoundException("User not found for id: " + userId))
         ).thenApply(userMapper::mapToSummaryDto);
     }
 

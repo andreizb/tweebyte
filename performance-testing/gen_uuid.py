@@ -2,7 +2,7 @@ import uuid
 import csv
 
 # Numele fișierului CSV
-file_name = 'uuids.csv'
+file_name = 'uuids2.csv'
 
 # Numărul de UUID-uri de generat
 num_uuids = 1000000

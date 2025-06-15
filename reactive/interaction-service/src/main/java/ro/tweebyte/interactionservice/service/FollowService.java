@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 import ro.tweebyte.interactionservice.entity.FollowEntity;
 import ro.tweebyte.interactionservice.exception.FollowNotFoundException;
 import ro.tweebyte.interactionservice.mapper.FollowMapper;
@@ -93,12 +94,10 @@ public class FollowService {
     }
 
     public Mono<FollowDto> follow(UUID userId, UUID followedId) {
-//        return userService.getUserSummary(followedId)
-        return Mono.fromSupplier(() -> UserDto.builder().isPrivate(true).build())
+        return userService.getUserSummary(followedId)
             .map(userSummary -> followMapper.mapRequestToEntity(userId, followedId, userSummary.getIsPrivate() ? Status.PENDING.name() : Status.ACCEPTED.name()))
             .flatMap(followRepository::save)
             .map(followMapper::mapEntityToDto);
-//            .doOnSuccess(dto -> Objects.requireNonNull(cacheManager.getCache("follow_recommendations")).evict(userId.toString()));
     }
 
     public Mono<Void> updateFollowRequest(UUID userId, UUID followRequestId, Status status) {

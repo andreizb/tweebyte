@@ -118,14 +118,10 @@ public class TweetService {
     }
 
     public Mono<Void> updateTweet(TweetUpdateRequest request) {
-        return tweetRepository.findByIdAndUserId(request.getId(), request.getUserId())
+        return tweetRepository.findById(request.getId())
             .switchIfEmpty(Mono.error(new TweetNotFoundException("Tweet not found for id " + request.getId())))
             .flatMap(tweetEntity -> tweetRepository.save(tweetMapper.mapUpdateRequestToEntity(request, tweetEntity)))
-            .flatMap(tweetEntity ->
-                processTweetTokens(request, mentionService::handleTweetUpdateMentions)
-                    .and(processTweetTokens(request, hashtagService::handleTweetUpdateHashtags))
-                    .then()
-            );
+            .then();
     }
 
     public Mono<Void> deleteTweet(UUID tweetId) {

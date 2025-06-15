@@ -43,55 +43,23 @@ public class FollowService {
 
     private final ObjectMapper objectMapper;
 
+    private final ExecutorService executorService;
+
     public CompletableFuture<List<FollowDto>> getFollowers(UUID userId) {
-//        return CompletableFuture.supplyAsync(() ->
-//            followRepository.findByFollowedIdAndStatusOrderByCreatedAtDesc(userId, FollowEntity.Status.ACCEPTED)
-//        ).thenCompose(followEntities -> {
-//            List<CompletableFuture<FollowDto>> futures = followEntities.stream().map(followEntity ->
-//                CompletableFuture.supplyAsync(() -> userService.getUserSummary(followEntity.getFollowerId()))
-//                    .thenApply(userSummary -> followMapper.mapEntityToDto(followEntity, userSummary.getUserName()))
-//            ).collect(Collectors.toList());
-//
-//            return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-//                .thenApply(v -> getFollowsPage(futures, FOLLOWERS_CACHE, userId));
-//        });
         return CompletableFuture.supplyAsync(() -> followRepository.findByFollowedIdAndStatusOrderByCreatedAtDesc(userId, FollowEntity.Status.ACCEPTED))
             .thenApply(futures -> futures.stream().map(future -> followMapper.mapEntityToDto(future, "some user")).collect(Collectors.toList()));
     }
 
     public CompletableFuture<List<FollowDto>> getFollowing(UUID userId) {
-//        return CompletableFuture.supplyAsync(() ->
-//            followRepository.findByFollowerIdAndStatusOrderByCreatedAtDesc(userId, FollowEntity.Status.ACCEPTED)
-//        ).thenCompose(followEntities -> {
-//            List<CompletableFuture<FollowDto>> futures = followEntities.stream().map(followEntity ->
-//                CompletableFuture.supplyAsync(() -> userService.getUserSummary(followEntity.getFollowedId()))
-//                    .thenApply(userSummary -> followMapper.mapEntityToDto(followEntity, userSummary.getUserName()))
-//            ).collect(Collectors.toList());
-//
-//            return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-//                .thenApply(v -> getFollowsPage(futures, FOLLOWING_CACHE, userId));
-//        });
         return CompletableFuture.supplyAsync(() -> followRepository.findByFollowerIdAndStatus(userId, FollowEntity.Status.ACCEPTED))
             .thenApply(futures -> futures.stream().map(future -> followMapper.mapEntityToDto(future, "some user")).collect(Collectors.toList()));
     }
 
     public CompletableFuture<Long> getFollowersCount(UUID userId) {
-//        CompletableFuture<Long> countFromCache = CompletableFuture.supplyAsync(
-//                () -> Objects.requireNonNull(cacheManager.getCache(FOLLOWERS_CACHE)).get(userId, String.class)
-//        ).thenApply(v -> {
-//            try {
-//                return Long.valueOf(objectMapper.readValue(v, new TypeReference<List<FollowDto>>() {}).size());
-//            } catch (JsonProcessingException e) {
-//                throw new RuntimeException(e);
-//            }
-//        });
-
         CompletableFuture<Long> countFromRepo = CompletableFuture.supplyAsync(() ->
             followRepository.countByFollowedIdAndStatus(userId, FollowEntity.Status.ACCEPTED)
         );
 
-//        return CompletableFuture.anyOf(countFromCache, countFromRepo)
-//                .thenApply(result -> (Long) result);
         return countFromRepo;
     }
 
@@ -108,10 +76,10 @@ public class FollowService {
     }
 
     public CompletableFuture<FollowDto> follow(UUID userId, UUID followedId) {
-        return CompletableFuture.supplyAsync(() -> Boolean.TRUE)
-            .thenApply(isPrivate ->
+        return CompletableFuture.supplyAsync(() -> userService.getUserSummary(followedId), executorService)
+            .thenApply(userDto ->
                 followMapper.mapRequestToEntity(
-                    userId, followedId, isPrivate ? FollowEntity.Status.PENDING : FollowEntity.Status.ACCEPTED
+                    userId, followedId, userDto.getIsPrivate() ? FollowEntity.Status.PENDING : FollowEntity.Status.ACCEPTED
                 )
             )
             .thenApply(followRepository::save)

@@ -19,7 +19,7 @@
         <stringProp name="shareMode">shareMode.all</stringProp>
       </CSVDataSet>
       <hashTree/>
-      <CSVDataSet guiclass="TestBeanGUI" testclass="CSVDataSet" testname="CSV Data Set Config" enabled="false">
+      <CSVDataSet guiclass="TestBeanGUI" testclass="CSVDataSet" testname="CSV Data Set Config">
         <stringProp name="filename">/Users/andrei/Developer/tweebyte/performance-testing/uuids2.csv</stringProp>
         <stringProp name="fileEncoding"></stringProp>
         <stringProp name="variableNames">uuid</stringProp>
@@ -45,7 +45,7 @@
       </ThreadGroup>
       <hashTree>
         <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="HTTP Request">
-          <stringProp name="HTTPSampler.domain">192.168.1.167</stringProp>
+          <stringProp name="HTTPSampler.domain">localhost</stringProp>
           <stringProp name="HTTPSampler.port">9093</stringProp>
           <stringProp name="HTTPSampler.path">/follows/${uuid}/${id}</stringProp>
           <boolProp name="HTTPSampler.follow_redirects">true</boolProp>

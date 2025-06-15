@@ -36,7 +36,7 @@
         </CSVDataSet>
         <hashTree/>
         <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="GET User Summary" enabled="true">
-          <stringProp name="HTTPSampler.domain">192.168.1.167</stringProp>
+          <stringProp name="HTTPSampler.domain">localhost</stringProp>
           <stringProp name="HTTPSampler.port">9091</stringProp>
           <stringProp name="HTTPSampler.path">/users/summary/${id}</stringProp>
           <boolProp name="HTTPSampler.follow_redirects">true</boolProp>

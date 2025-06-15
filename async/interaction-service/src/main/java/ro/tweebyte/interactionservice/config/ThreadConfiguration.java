@@ -16,7 +16,7 @@ public class ThreadConfiguration {
 
     @Bean(name = "executorService")
     public ExecutorService userExecutorService() {
-        return enableCustomThreadPool ? Executors.newCachedThreadPool() : ForkJoinPool.commonPool();
+        return enableCustomThreadPool ? Executors.newFixedThreadPool(200) : ForkJoinPool.commonPool();
     }
 
 }

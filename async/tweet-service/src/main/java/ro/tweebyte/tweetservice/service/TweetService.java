@@ -149,15 +149,11 @@ public class TweetService {
 
     public CompletableFuture<Void> updateTweet(TweetUpdateRequest request) {
         return CompletableFuture.supplyAsync(
-                () -> tweetRepository.save(tweetMapper.mapUpdateRequestToEntity(request,tweetRepository
-                    .findByIdAndUserId(request.getId(), request.getUserId())
+                () -> tweetMapper.mapUpdateRequestToEntity(request, tweetRepository
+                    .findById(request.getId())
                     .orElseThrow(() -> new TweetNotFoundException("Tweet not found for id " + request.getId())
-            ))))
-            .thenAcceptAsync(tweetEntity -> tweetRepository.save(tweetMapper.mapUpdateRequestToEntity(request, tweetEntity)))
-            .thenAcceptAsync(tweetEntity -> {
-                CompletableFuture.runAsync(() -> processTweetTokens(request, mentionService::handleTweetCreationMentions), executorService);
-                CompletableFuture.runAsync(() -> processTweetTokens(request, hashtagService::handleTweetCreationHashtags), executorService);
-            }, executorService);
+            )))
+            .thenAcceptAsync(tweetEntity -> tweetRepository.save(tweetMapper.mapUpdateRequestToEntity(request, tweetEntity)), executorService);
     }
 
     public CompletableFuture<Void> deleteTweet(UUID tweetId) {

@@ -40,16 +40,6 @@ public class RecommendationService {
     @Resource(name = "recommendationService")
     private RecommendationService self;
 
-    @Scheduled(fixedRate = 2, timeUnit = TimeUnit.DAYS)
-    public void computePopularUsersJob() {
-        self.fetchPopularUsers();
-    }
-
-    @Scheduled(fixedRate = 7, timeUnit = TimeUnit.DAYS)
-    public void computePopularHashtagsJob() {
-        self.fetchPopularHashtags().subscribe();
-    }
-
     public Flux<UserDto> recommendUsersToFollow(UUID userId) {
         return self.getUserRecommendations(userId);
     }

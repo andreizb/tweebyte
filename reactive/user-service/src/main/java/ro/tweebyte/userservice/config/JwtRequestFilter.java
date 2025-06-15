@@ -23,54 +23,55 @@ public class JwtRequestFilter implements WebFilter {
     @NonNull
     public Mono<Void> filter(@NonNull ServerWebExchange exchange, @NonNull WebFilterChain chain) {
         String path = exchange.getRequest().getPath().value();
-        if (path.startsWith("/auth/register") ||
-                path.startsWith("/auth/login") ||
-                path.startsWith("/error") ||
-                path.startsWith("users/summary/")) {
-            return chain.filter(exchange);
-        }
-
-        String authHeader = exchange.getRequest().getHeaders().getFirst("Authorization");
-
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
-            return exchange.getResponse().setComplete();
-        }
-
-        String jwtToken = authHeader.substring(7);
-
-        return Mono.just(jwtToken)
-                .flatMap(token -> {
-                    try {
-                        return Mono.just(jwtDecoder.decode(token));
-                    } catch (JwtException e) {
-                        exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
-                        return Mono.empty();
-                    }
-                })
-                .flatMap(jwt -> {
-                    String userId = jwt.getClaimAsString("user_id");
-                    if (userId == null) {
-                        exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
-                        return Mono.empty();
-                    }
-                    return userDetailsService.findByUsername(userId);
-                })
-                .map(userDetails -> new UsernamePasswordAuthenticationToken(
-                        userDetails,
-                        null,
-                        userDetails.getAuthorities()
-                ))
-                .flatMap(authentication ->
-                        chain.filter(exchange)
-                                .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication))
-                )
-                .switchIfEmpty(Mono.defer(() -> {
-                    if (!exchange.getResponse().isCommitted()) {
-                        exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
-                        return exchange.getResponse().setComplete();
-                    }
-                    return Mono.empty();
-                }));
+        return chain.filter(exchange);
+//        if (path.startsWith("/auth/register") ||
+//                path.startsWith("/auth/login") ||
+//                path.startsWith("/error") ||
+//                path.startsWith("users/summary/")) {
+//            return chain.filter(exchange);
+//        }
+//
+//        String authHeader = exchange.getRequest().getHeaders().getFirst("Authorization");
+//
+//        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+//            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+//            return exchange.getResponse().setComplete();
+//        }
+//
+//        String jwtToken = authHeader.substring(7);
+//
+//        return Mono.just(jwtToken)
+//                .flatMap(token -> {
+//                    try {
+//                        return Mono.just(jwtDecoder.decode(token));
+//                    } catch (JwtException e) {
+//                        exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+//                        return Mono.empty();
+//                    }
+//                })
+//                .flatMap(jwt -> {
+//                    String userId = jwt.getClaimAsString("user_id");
+//                    if (userId == null) {
+//                        exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+//                        return Mono.empty();
+//                    }
+//                    return userDetailsService.findByUsername(userId);
+//                })
+//                .map(userDetails -> new UsernamePasswordAuthenticationToken(
+//                        userDetails,
+//                        null,
+//                        userDetails.getAuthorities()
+//                ))
+//                .flatMap(authentication ->
+//                        chain.filter(exchange)
+//                                .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication))
+//                )
+//                .switchIfEmpty(Mono.defer(() -> {
+//                    if (!exchange.getResponse().isCommitted()) {
+//                        exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+//                        return exchange.getResponse().setComplete();
+//                    }
+//                    return Mono.empty();
+//                }));
     }
 }

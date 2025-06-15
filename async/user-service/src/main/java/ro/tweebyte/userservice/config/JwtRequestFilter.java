@@ -36,24 +36,24 @@ public class JwtRequestFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull FilterChain filterChain) throws ServletException, IOException {
         final String requestTokenHeader = request.getHeader("Authorization");
 
-        if (requestTokenHeader != null && requestTokenHeader.startsWith("Bearer ")) {
-            String jwtToken = requestTokenHeader.substring(7);
-            try {
-                UUID userId = UUID.fromString(jwtDecoder.decode(jwtToken).getClaimAsString("user_id"));
-                String userEmail = jwtDecoder.decode(jwtToken).getClaimAsString("email");
-
-                if (userId != null && userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                    List<GrantedAuthority> dummyAuthorities = Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"));
-                    String dummyPassword = "dummyPassword";
-
-                    CustomUserDetails userDetails = new CustomUserDetails(userId, userEmail, dummyPassword, dummyAuthorities);
-                    Authentication authentication = new UsernamePasswordAuthenticationToken(userDetails, dummyPassword, dummyAuthorities);
-                    SecurityContextHolder.getContext().setAuthentication(authentication);
-                }
-            } catch (Exception e) {
-                logger.error("JWT token processing failed: " + e.getMessage());
-            }
-        }
+//        if (requestTokenHeader != null && requestTokenHeader.startsWith("Bearer ")) {
+//            String jwtToken = requestTokenHeader.substring(7);
+//            try {
+//                UUID userId = UUID.fromString(jwtDecoder.decode(jwtToken).getClaimAsString("user_id"));
+//                String userEmail = jwtDecoder.decode(jwtToken).getClaimAsString("email");
+//
+//                if (userId != null && userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+//                    List<GrantedAuthority> dummyAuthorities = Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"));
+//                    String dummyPassword = "dummyPassword";
+//
+//                    CustomUserDetails userDetails = new CustomUserDetails(userId, userEmail, dummyPassword, dummyAuthorities);
+//                    Authentication authentication = new UsernamePasswordAuthenticationToken(userDetails, dummyPassword, dummyAuthorities);
+//                    SecurityContextHolder.getContext().setAuthentication(authentication);
+//                }
+//            } catch (Exception e) {
+//                logger.error("JWT token processing failed: " + e.getMessage());
+//            }
+//        }
 
         filterChain.doFilter(request, response);
     }

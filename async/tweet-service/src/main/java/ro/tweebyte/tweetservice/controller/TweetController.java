@@ -71,10 +71,9 @@ public class TweetController {
     }
 
     @PutMapping("/{tweetId}")
-    public CompletableFuture<Void> updateTweet(@AuthenticationPrincipal CustomUserDetails userDetails,
-                                               @PathVariable(value = "tweetId") UUID tweetId,
+    public CompletableFuture<Void> updateTweet(@PathVariable(value = "tweetId") UUID tweetId,
                                                @Valid @RequestBody TweetUpdateRequest request) {
-        return tweetService.updateTweet(request.setId(tweetId).setUserId(userDetails.getUserId()));
+        return tweetService.updateTweet(request.setId(tweetId));
     }
 
     @DeleteMapping("/{tweetId}")
