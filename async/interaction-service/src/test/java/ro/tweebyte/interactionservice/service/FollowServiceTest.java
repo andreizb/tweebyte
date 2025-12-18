@@ -1,13 +1,15 @@
 package ro.tweebyte.interactionservice.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cache.CacheManager;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import ro.tweebyte.interactionservice.entity.FollowEntity;
-import ro.tweebyte.interactionservice.exception.FollowNotFoundException;
 import ro.tweebyte.interactionservice.mapper.FollowMapper;
 import ro.tweebyte.interactionservice.model.FollowDto;
 import ro.tweebyte.interactionservice.repository.FollowRepository;
@@ -18,6 +20,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -40,40 +43,59 @@ class FollowServiceTest {
 	@Mock
 	private ObjectMapper objectMapper;
 
+	@Mock
+	private UserService userService;
+
+	@Mock
+	private ExecutorService executorService;
+
+	@Mock
+	private RedisTemplate<String, byte[]> redisTemplate;
+
+	@Mock
+	private ValueOperations<String, byte[]> valueOperations;
+
+	@BeforeEach
+	void setUp() {
+		when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+		doAnswer(invocation -> {
+			((Runnable) invocation.getArgument(0)).run();
+			return null;
+		}).when(executorService).execute(any(Runnable.class));
+	}
+
 	@Test
 	void testGetFollowers() throws Exception {
 		UUID userId = UUID.randomUUID();
 		FollowEntity followEntity = new FollowEntity();
 		List<FollowEntity> followEntities = Collections.singletonList(followEntity);
 
-		when(followRepository.findByFollowedIdAndStatusOrderByCreatedAtDesc(eq(userId), eq(FollowEntity.Status.ACCEPTED)))
-			.thenReturn(followEntities);
+		when(followRepository.findByFollowedIdAndStatusOrderByCreatedAtDesc(eq(userId),
+				eq(FollowEntity.Status.ACCEPTED)))
+				.thenReturn(followEntities);
 		when(followMapper.mapEntityToDto(any(FollowEntity.class), eq("some user"))).thenReturn(new FollowDto());
 
 		List<FollowDto> result = followService.getFollowers(userId).get();
 
 		assertNotNull(result);
 		assertEquals(1, result.size());
-		verify(followRepository).findByFollowedIdAndStatusOrderByCreatedAtDesc(eq(userId), eq(FollowEntity.Status.ACCEPTED));
+		verify(followRepository).findByFollowedIdAndStatusOrderByCreatedAtDesc(eq(userId),
+				eq(FollowEntity.Status.ACCEPTED));
 		verify(followMapper).mapEntityToDto(any(FollowEntity.class), eq("some user"));
 	}
 
 	@Test
 	void testGetFollowing() throws Exception {
 		UUID userId = UUID.randomUUID();
-		FollowEntity followEntity = new FollowEntity();
-		List<FollowEntity> followEntities = Collections.singletonList(followEntity);
+		byte[] mockBytes = new byte[] { 1, 2, 3 };
 
-		when(followRepository.findByFollowerIdAndStatus(eq(userId), eq(FollowEntity.Status.ACCEPTED)))
-			.thenReturn(followEntities);
-		when(followMapper.mapEntityToDto(any(FollowEntity.class), eq("some user"))).thenReturn(new FollowDto());
+		when(valueOperations.get(anyString())).thenReturn(mockBytes);
 
-		List<FollowDto> result = followService.getFollowing(userId).get();
+		byte[] result = followService.getFollowing(userId).get();
 
 		assertNotNull(result);
-		assertEquals(1, result.size());
-		verify(followRepository).findByFollowerIdAndStatus(eq(userId), eq(FollowEntity.Status.ACCEPTED));
-		verify(followMapper).mapEntityToDto(any(FollowEntity.class), eq("some user"));
+		assertArrayEquals(mockBytes, result);
+		verify(valueOperations).get(anyString());
 	}
 
 	@Test
@@ -104,15 +126,17 @@ class FollowServiceTest {
 		FollowEntity followEntity = new FollowEntity();
 		List<FollowEntity> followEntities = Collections.singletonList(followEntity);
 
-		when(followRepository.findByFollowedIdAndStatusOrderByCreatedAtDesc(eq(userId), eq(FollowEntity.Status.PENDING)))
-			.thenReturn(followEntities);
+		when(followRepository.findByFollowedIdAndStatusOrderByCreatedAtDesc(eq(userId),
+				eq(FollowEntity.Status.PENDING)))
+				.thenReturn(followEntities);
 		when(followMapper.mapEntityToDto(followEntity)).thenReturn(new FollowDto());
 
 		List<FollowDto> result = followService.getFollowRequests(userId).get();
 
 		assertNotNull(result);
 		assertEquals(1, result.size());
-		verify(followRepository).findByFollowedIdAndStatusOrderByCreatedAtDesc(eq(userId), eq(FollowEntity.Status.PENDING));
+		verify(followRepository).findByFollowedIdAndStatusOrderByCreatedAtDesc(eq(userId),
+				eq(FollowEntity.Status.PENDING));
 		verify(followMapper).mapEntityToDto(any(FollowEntity.class));
 	}
 
@@ -122,7 +146,11 @@ class FollowServiceTest {
 		UUID followedId = UUID.randomUUID();
 		FollowEntity followEntity = new FollowEntity();
 
-		when(followMapper.mapRequestToEntity(userId, followedId, FollowEntity.Status.PENDING)).thenReturn(followEntity);
+		ro.tweebyte.interactionservice.model.UserDto userDto = new ro.tweebyte.interactionservice.model.UserDto();
+		userDto.setIsPrivate(false);
+		when(userService.getUserSummary(followedId)).thenReturn(userDto);
+		when(followMapper.mapRequestToEntity(userId, followedId, FollowEntity.Status.ACCEPTED))
+				.thenReturn(followEntity);
 		when(followRepository.save(followEntity)).thenReturn(followEntity);
 		when(followMapper.mapEntityToDto(followEntity)).thenReturn(new FollowDto());
 
@@ -130,7 +158,7 @@ class FollowServiceTest {
 
 		assertNotNull(result);
 
-		verify(followMapper).mapRequestToEntity(userId, followedId, FollowEntity.Status.PENDING);
+		verify(followMapper).mapRequestToEntity(userId, followedId, FollowEntity.Status.ACCEPTED);
 		verify(followRepository).save(followEntity);
 		verify(followMapper).mapEntityToDto(followEntity);
 	}
@@ -159,7 +187,8 @@ class FollowServiceTest {
 		UUID followRequestId = UUID.randomUUID();
 		when(followRepository.findById(followRequestId)).thenReturn(Optional.empty());
 
-		CompletableFuture<Void> result = followService.updateFollowRequest(UUID.randomUUID(), followRequestId, FollowEntity.Status.ACCEPTED);
+		CompletableFuture<Void> result = followService.updateFollowRequest(UUID.randomUUID(), followRequestId,
+				FollowEntity.Status.ACCEPTED);
 
 		assertThrows(ExecutionException.class, result::get);
 	}
@@ -183,7 +212,8 @@ class FollowServiceTest {
 		followEntity.setFollowedId(UUID.randomUUID());
 		List<FollowEntity> followEntities = Collections.singletonList(followEntity);
 
-		when(followRepository.findByFollowerIdAndStatus(userId, FollowEntity.Status.ACCEPTED)).thenReturn(followEntities);
+		when(followRepository.findByFollowerIdAndStatus(userId, FollowEntity.Status.ACCEPTED))
+				.thenReturn(followEntities);
 
 		List<UUID> result = followService.getFollowedIdentifiers(userId).get();
 

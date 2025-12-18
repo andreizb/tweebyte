@@ -2,10 +2,8 @@ package ro.tweebyte.interactionservice.controller;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import ro.tweebyte.interactionservice.entity.FollowEntity;
-import ro.tweebyte.interactionservice.model.CustomUserDetails;
 import ro.tweebyte.interactionservice.model.FollowDto;
 import ro.tweebyte.interactionservice.service.FollowService;
 
@@ -26,7 +24,7 @@ public class FollowController {
     }
 
     @GetMapping("/{userId}/following")
-    public CompletableFuture<List<FollowDto>> getFollowing(@PathVariable(value = "userId") UUID userId) {
+    public CompletableFuture<byte[]> getFollowing(@PathVariable(value = "userId") UUID userId) {
         return followService.getFollowing(userId);
     }
 
@@ -46,8 +44,8 @@ public class FollowController {
     }
 
     @GetMapping("/{userId}/requests")
-    public CompletableFuture<List<FollowDto>> getFollowRequests(@AuthenticationPrincipal CustomUserDetails userDetails) {
-        return followService.getFollowRequests(userDetails.getUserId());
+    public CompletableFuture<List<FollowDto>> getFollowRequests(@PathVariable(value = "userId") UUID userId) {
+        return followService.getFollowRequests(userId);
     }
 
     @PostMapping("/{userId}/{followedId}")
@@ -57,19 +55,19 @@ public class FollowController {
         return followService.follow(userId, followedId);
     }
 
-    @PutMapping("/{followRequestId}/{status}")
+    @PutMapping("/{userId}/{followRequestId}/{status}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public CompletableFuture<Void> updateFollowRequest(@AuthenticationPrincipal CustomUserDetails userDetails,
+    public CompletableFuture<Void> updateFollowRequest(@PathVariable(value = "userId") UUID userId,
                                                        @PathVariable(value = "followRequestId") UUID followRequestId,
                                                        @PathVariable(value = "status") FollowEntity.Status status) {
-        return followService.updateFollowRequest(userDetails.getUserId(), followRequestId, status);
+        return followService.updateFollowRequest(userId, followRequestId, status);
     }
 
-    @DeleteMapping("/{followedId}")
+    @DeleteMapping("/{userId}/{followedId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public CompletableFuture<Void> unfollow(@AuthenticationPrincipal CustomUserDetails userDetails,
+    public CompletableFuture<Void> unfollow(@PathVariable(value = "userId") UUID userId,
                                             @PathVariable(value = "followedId") UUID followedId) {
-        return followService.unfollow(userDetails.getUserId(), followedId);
+        return followService.unfollow(userId, followedId);
     }
 
 }

@@ -1,7 +1,6 @@
 package ro.tweebyte.interactionservice.controller;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -20,23 +19,23 @@ public class ReplyController {
 
     private final ReplyService replyService;
 
-    @PostMapping
-    public Mono<ReplyDto> createReply(@AuthenticationPrincipal CustomUserDetails userDetails,
+    @PostMapping("/{userId}")
+    public Mono<ReplyDto> createReply(@PathVariable(value = "userId") UUID userId,
                                       @RequestBody ReplyCreateRequest request) {
-        return replyService.createReply(request.setUserId(userDetails.getUserId()));
+        return replyService.createReply(request.setUserId(userId));
     }
 
-    @PutMapping("/{replyId}")
-    public Mono<Void> updateReply(@AuthenticationPrincipal CustomUserDetails userDetails,
+    @PutMapping("/{userId}/{replyId}")
+    public Mono<Void> updateReply(@PathVariable(value = "userId") UUID userId,
                                                @PathVariable UUID replyId,
                                                @RequestBody ReplyUpdateRequest request) {
-        return replyService.updateReply(request.setId(replyId).setUserId(userDetails.getUserId()));
+        return replyService.updateReply(request.setId(replyId).setUserId(userId));
     }
 
-    @DeleteMapping("/{replyId}")
-    public Mono<Void> deleteReply(@AuthenticationPrincipal CustomUserDetails userDetails,
+    @DeleteMapping("/{userId}/{replyId}")
+    public Mono<Void> deleteReply(@PathVariable(value = "userId") UUID userId,
                                                @PathVariable UUID replyId) {
-        return replyService.deleteReply(userDetails.getUserId(), replyId);
+        return replyService.deleteReply(userId, replyId);
     }
 
     @GetMapping("/tweet/{tweetId}")

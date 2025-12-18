@@ -9,10 +9,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Flux;
@@ -49,10 +45,6 @@ public class TweetControllerTest {
 
     @BeforeEach
     public void setUp() {
-        CustomUserDetails mockUserDetails = new CustomUserDetails(userId, "asd");
-        UsernamePasswordAuthenticationToken authentication =
-            new UsernamePasswordAuthenticationToken(mockUserDetails, "null", Collections.emptyList());
-        SecurityContextHolder.getContext().setAuthentication(authentication);
 
         given(tweetService.getUserFeed(eq(userId), any())).willReturn(Flux.just(tweetDto));
         given(tweetService.getTweet(eq(tweetId), any())).willReturn(Mono.just(tweetDto));
@@ -68,142 +60,120 @@ public class TweetControllerTest {
     }
 
     @Test
-    @WithMockUser
     public void searchTweets() {
         webTestClient.get().uri("/tweets/search/{searchTerm}", searchTerm)
-            .exchange()
-            .expectStatus().isOk()
-            .expectBodyList(TweetDto.class).hasSize(1);
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(TweetDto.class).hasSize(1);
     }
 
     @Test
-    @WithMockUser
     public void searchTweetsByHashtag() {
         webTestClient.get().uri("/tweets/search/hashtag/{searchTerm}", searchTerm)
-            .exchange()
-            .expectStatus().isOk()
-            .expectBodyList(TweetDto.class).hasSize(1);
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(TweetDto.class).hasSize(1);
     }
 
     @Test
-    @WithMockUser
     public void computePopularHashtags() {
         webTestClient.get().uri("/tweets/hashtag/popular")
-            .exchange()
-            .expectStatus().isOk()
-            .expectBodyList(HashtagDto.class).hasSize(1);
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(HashtagDto.class).hasSize(1);
     }
 
     @Test
-    @WithMockUser
     public void getTweetSummary() {
         webTestClient.get().uri("/tweets/{tweetId}/summary", tweetId)
-            .exchange()
-            .expectStatus().isOk()
-            .expectBody(TweetDto.class).isEqualTo(tweetDto);
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(TweetDto.class).isEqualTo(tweetDto);
     }
 
     @Test
-    @WithMockUser
     public void getUserTweetsSummary() {
         webTestClient.get().uri("/tweets/user/{userId}/summary", userId)
-            .exchange()
-            .expectStatus().isOk()
-            .expectBodyList(TweetDto.class).hasSize(1);
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(TweetDto.class).hasSize(1);
     }
 
     @Test
-    @WithMockUser
     public void createTweet() {
         TweetCreationRequest request = new TweetCreationRequest();
         request.setContent("asdfffffffffffffffffffffffffffffffffffffff");
 
         webTestClient
-            .mutateWith(SecurityMockServerConfigurers.csrf())
-            .post().uri("/tweets")
-            .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(request)
-            .exchange()
-            .expectStatus().isOk()
-            .expectBody(TweetDto.class).isEqualTo(tweetDto);
+                .post().uri("/tweets/{userId}", userId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(request)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(TweetDto.class).isEqualTo(tweetDto);
     }
 
     @Test
-    @WithMockUser
     public void updateTweet() {
         TweetUpdateRequest request = new TweetUpdateRequest();
         webTestClient
-            .mutateWith(SecurityMockServerConfigurers.csrf())
-            .put().uri("/tweets/{tweetId}", tweetId)
-            .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(request)
-            .exchange()
-            .expectStatus().isOk();
+                .put().uri("/tweets/{tweetId}", tweetId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(request)
+                .exchange()
+                .expectStatus().isOk();
     }
 
     @Test
-    @WithMockUser
     public void deleteTweet() {
         webTestClient
-            .mutateWith(SecurityMockServerConfigurers.csrf())
-            .delete().uri("/tweets/{tweetId}", tweetId)
-            .exchange()
-            .expectStatus().isNoContent();
+                .delete().uri("/tweets/{tweetId}", tweetId)
+                .exchange()
+                .expectStatus().isNoContent();
     }
 
     @Test
-    @WithMockUser
     public void getUserTweets() {
         given(tweetService.getUserTweets(eq(userId), any())).willReturn(Flux.just(tweetDto));
 
         webTestClient
-            .mutateWith(SecurityMockServerConfigurers.csrf())
-            .get()
-            .uri("/tweets/user/{userId}", userId)
-            .header("Authorization", "Bearer test-token")
-            .exchange()
-            .expectStatus().isOk()
-            .expectBodyList(TweetDto.class)
-            .hasSize(1)
-            .contains(tweetDto);
+                .get()
+                .uri("/tweets/user/{userId}", userId)
+                .header("Authorization", "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(TweetDto.class)
+                .hasSize(1)
+                .contains(tweetDto);
     }
 
     @Test
-    @WithMockUser
     public void getFeed() {
-        CustomUserDetails mockUserDetails = new CustomUserDetails(userId, "test-user");
-        SecurityContextHolder.getContext().setAuthentication(
-            new UsernamePasswordAuthenticationToken(mockUserDetails, null, Collections.emptyList())
-        );
-
         given(tweetService.getUserFeed(eq(userId), any())).willReturn(Flux.just(tweetDto));
 
         webTestClient
-            .mutateWith(SecurityMockServerConfigurers.csrf())
-            .get()
-            .uri("/tweets/feed")
-            .header("Authorization", "Bearer test-token")
-            .exchange()
-            .expectStatus().isOk()
-            .expectBodyList(TweetDto.class)
-            .hasSize(1)
-            .contains(tweetDto);
+                .get()
+                .uri("/tweets/{userId}/feed", userId)
+                .header("Authorization", "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(TweetDto.class)
+                .hasSize(1)
+                .contains(tweetDto);
     }
 
     @Test
-    @WithMockUser
     public void getTweet() {
         given(tweetService.getTweet(eq(tweetId), any())).willReturn(Mono.just(tweetDto));
 
         webTestClient
-            .mutateWith(SecurityMockServerConfigurers.csrf())
-            .get()
-            .uri("/tweets/{tweetId}", tweetId)
-            .header("Authorization", "Bearer test-token")
-            .exchange()
-            .expectStatus().isOk()
-            .expectBody(TweetDto.class)
-            .isEqualTo(tweetDto);
+                .get()
+                .uri("/tweets/{tweetId}", tweetId)
+                .header("Authorization", "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(TweetDto.class)
+                .isEqualTo(tweetDto);
     }
 
 }

@@ -3,9 +3,14 @@ package ro.tweebyte.interactionservice.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -19,15 +24,14 @@ import ro.tweebyte.interactionservice.model.Status;
 import ro.tweebyte.interactionservice.model.UserDto;
 import ro.tweebyte.interactionservice.repository.FollowRepository;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
+import java.time.Duration;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
 public class FollowService {
 
-    private static final String FOLLOWING_CACHE = "following_cache:";
+    private static final String FOLLOWING_CACHE = "following_cache";
 
     private final UserService userService;
 
@@ -37,9 +41,12 @@ public class FollowService {
 
     private final CacheManager cacheManager;
 
-    private final ReactiveRedisTemplate<String, Object> redisTemplate;
+    private final ReactiveRedisTemplate<String, byte[]> redisTemplate;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builder()
+        .addModule(new JavaTimeModule())
+        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+        .build();
 
     public Flux<FollowDto> getFollowers(UUID userId, String authToken) {
         return followRepository.findByFollowedIdAndStatusOrderByCreatedAtDesc(userId, Status.ACCEPTED.name())
@@ -47,14 +54,29 @@ public class FollowService {
                 .map(userSummary -> followMapper.mapEntityToDto(followEntity, userSummary.getUserName())));
     }
 
-    public Flux<FollowDto> getFollowing(UUID userId, String authToken) {
-        String key = FOLLOWING_CACHE + ":" + userId;
-        return redisTemplate.opsForList().range(key, 0, -1)
-                .cast(FollowDto.class)
-                .switchIfEmpty(fetchFollowing(userId, authToken)
-                        .collectList()
-                        .doOnNext(followDtoList -> redisTemplate.opsForList().rightPushAll(key, followDtoList))
-                        .flatMapMany(Flux::fromIterable));
+    public Mono<byte[]> getFollowing(UUID userId, String authToken) {
+        String key = FOLLOWING_CACHE + "::" + userId;
+
+        return redisTemplate.opsForValue().get(key)
+            .filter(bytes -> bytes != null && bytes.length > 0)
+            .switchIfEmpty(Mono.defer(() ->
+                followRepository.findByFollowerIdAndStatus(userId, Status.ACCEPTED.name())
+                    .map(e -> followMapper.mapEntityToDto(e, "some username"))
+                    .collectList()
+                    .flatMap(list -> {
+                        try {
+                            byte[] bytes = objectMapper.writeValueAsBytes(list);
+                            return Mono.just(bytes);
+                        } catch (Exception e) {
+                            return Mono.error(e);
+                        }
+                    })
+                    .flatMap(bytes ->
+                        redisTemplate.opsForValue()
+                            .set(key, bytes, Duration.ofSeconds(60))
+                            .thenReturn(bytes)
+                    )
+            ));
     }
 
     public Mono<Long> getFollowersCount(UUID userId) {
@@ -117,12 +139,6 @@ public class FollowService {
     public Mono<Void> unfollow(UUID followerId, UUID followedId) {
         return followRepository.deleteByFollowerIdAndFollowedId(followerId, followedId)
             .doFinally(signalType -> Objects.requireNonNull(cacheManager.getCache("follow_recommendations")).evict(followerId.toString()));
-    }
-
-    private Flux<FollowDto> fetchFollowing(UUID userId, String authToken) {
-        return followRepository.findByFollowerIdAndStatusOrderByCreatedAtDesc(userId, Status.ACCEPTED.name())
-                .flatMap(followEntity -> userService.getUserSummary(followEntity.getFollowedId())
-                        .map(userSummary -> followMapper.mapEntityToDto(followEntity, userSummary.getUserName())));
     }
 
 }

@@ -1,9 +1,7 @@
 package ro.tweebyte.interactionservice.controller;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import ro.tweebyte.interactionservice.model.CustomUserDetails;
 import ro.tweebyte.interactionservice.model.ReplyCreateRequest;
 import ro.tweebyte.interactionservice.model.ReplyDto;
 import ro.tweebyte.interactionservice.model.ReplyUpdateRequest;
@@ -20,23 +18,23 @@ public class ReplyController {
 
     private final ReplyService replyService;
 
-    @PostMapping
-    public CompletableFuture<ReplyDto> createReply(@AuthenticationPrincipal CustomUserDetails userDetails,
-                                                   @RequestBody ReplyCreateRequest request) {
-        return replyService.createReply(request.setUserId(userDetails.getUserId()));
+    @PostMapping("/{userId}")
+    public CompletableFuture<ReplyDto> createReply(@PathVariable(value = "userId") UUID userId,
+            @RequestBody ReplyCreateRequest request) {
+        return replyService.createReply(request.setUserId(userId));
     }
 
-    @PutMapping("/{replyId}")
-    public CompletableFuture<Void> updateReply(@AuthenticationPrincipal CustomUserDetails userDetails,
-                                               @PathVariable UUID replyId,
-                                               @RequestBody ReplyUpdateRequest request) {
-        return replyService.updateReply(request.setId(replyId).setUserId(userDetails.getUserId()));
+    @PutMapping("/{userId}/{replyId}")
+    public CompletableFuture<Void> updateReply(@PathVariable(value = "userId") UUID userId,
+            @PathVariable UUID replyId,
+            @RequestBody ReplyUpdateRequest request) {
+        return replyService.updateReply(request.setId(replyId).setUserId(userId));
     }
 
-    @DeleteMapping("/{replyId}")
-    public CompletableFuture<Void> deleteReply(@AuthenticationPrincipal CustomUserDetails userDetails,
-                                               @PathVariable UUID replyId) {
-        return replyService.deleteReply(userDetails.getUserId(), replyId);
+    @DeleteMapping("/{userId}/{replyId}")
+    public CompletableFuture<Void> deleteReply(@PathVariable(value = "userId") UUID userId,
+            @PathVariable UUID replyId) {
+        return replyService.deleteReply(userId, replyId);
     }
 
     @GetMapping("/tweet/{tweetId}")

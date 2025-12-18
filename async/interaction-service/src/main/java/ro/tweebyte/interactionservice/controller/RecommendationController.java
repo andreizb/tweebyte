@@ -3,9 +3,7 @@ package ro.tweebyte.interactionservice.controller;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import ro.tweebyte.interactionservice.model.CustomUserDetails;
 import ro.tweebyte.interactionservice.model.TweetDto;
 import ro.tweebyte.interactionservice.model.TweetSummaryDto;
 import ro.tweebyte.interactionservice.model.UserDto;
@@ -22,9 +20,10 @@ public class RecommendationController {
 
     private final RecommendationService recommendationService;
 
-    @GetMapping(path = "/follow")
-    public CompletableFuture<List<UserDto>> findFollowRecommendations(@AuthenticationPrincipal CustomUserDetails userDetails, @PageableDefault Pageable pageable) {
-        return recommendationService.recommendUsersToFollow(userDetails.getUserId(), pageable);
+    @GetMapping(path = "/{userId}/follow")
+    public CompletableFuture<List<UserDto>> findFollowRecommendations(@PathVariable(value = "userId") UUID userId,
+            @PageableDefault Pageable pageable) {
+        return recommendationService.recommendUsersToFollow(userId, pageable);
     }
 
     @GetMapping(path = "/hashtags")

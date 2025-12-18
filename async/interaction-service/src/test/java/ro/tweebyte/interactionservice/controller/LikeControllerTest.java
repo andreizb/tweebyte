@@ -6,15 +6,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers;
 import org.springframework.test.context.web.WebAppConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
-import ro.tweebyte.interactionservice.model.CustomUserDetails;
 import ro.tweebyte.interactionservice.model.LikeDto;
 import ro.tweebyte.interactionservice.service.LikeService;
 
@@ -44,15 +40,9 @@ class LikeControllerTest {
 
 	@BeforeEach
 	public void setup() {
-		CustomUserDetails mockUserDetails = new CustomUserDetails(userId, "test@test.com");
-		UsernamePasswordAuthenticationToken authentication =
-			new UsernamePasswordAuthenticationToken(mockUserDetails, null, Collections.emptyList());
-		SecurityContextHolder.getContext().setAuthentication(authentication);
-
 		mockMvc = MockMvcBuilders
-			.webAppContextSetup(context)
-			.apply(SecurityMockMvcConfigurers.springSecurity())
-			.build();
+				.webAppContextSetup(context)
+				.build();
 	}
 
 	@Test
@@ -61,12 +51,12 @@ class LikeControllerTest {
 		when(likeService.getUserLikes(userId)).thenReturn(CompletableFuture.completedFuture(mockLikes));
 
 		MvcResult result = mockMvc.perform(get(BASE_URL + "/user/{userId}", userId))
-			.andExpect(status().isOk())
-			.andReturn();
+				.andExpect(status().isOk())
+				.andReturn();
 
 		mockMvc.perform(asyncDispatch(result))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$").isArray());
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$").isArray());
 
 		verify(likeService).getUserLikes(userId);
 	}
@@ -78,12 +68,12 @@ class LikeControllerTest {
 		when(likeService.getTweetLikes(tweetId)).thenReturn(CompletableFuture.completedFuture(mockLikes));
 
 		MvcResult result = mockMvc.perform(get(BASE_URL + "/tweet/{tweetId}", tweetId))
-			.andExpect(status().isOk())
-			.andReturn();
+				.andExpect(status().isOk())
+				.andReturn();
 
 		mockMvc.perform(asyncDispatch(result))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$").isArray());
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$").isArray());
 
 		verify(likeService).getTweetLikes(tweetId);
 	}
@@ -94,12 +84,12 @@ class LikeControllerTest {
 		when(likeService.getTweetLikesCount(tweetId)).thenReturn(CompletableFuture.completedFuture(20L));
 
 		MvcResult result = mockMvc.perform(get(BASE_URL + "/{tweetId}/count", tweetId))
-			.andExpect(status().isOk())
-			.andReturn();
+				.andExpect(status().isOk())
+				.andReturn();
 
 		mockMvc.perform(asyncDispatch(result))
-			.andExpect(status().isOk())
-			.andExpect(content().string("20"));
+				.andExpect(status().isOk())
+				.andExpect(content().string("20"));
 
 		verify(likeService).getTweetLikesCount(tweetId);
 	}
@@ -110,13 +100,13 @@ class LikeControllerTest {
 		LikeDto mockLikeDto = new LikeDto();
 		when(likeService.likeTweet(userId, tweetId)).thenReturn(CompletableFuture.completedFuture(mockLikeDto));
 
-		MvcResult result = mockMvc.perform(post(BASE_URL + "/tweets/{tweetId}", tweetId)
+		MvcResult result = mockMvc.perform(post(BASE_URL + "/{userId}/tweets/{tweetId}", userId, tweetId)
 				.contentType(MediaType.APPLICATION_JSON))
-			.andExpect(status().isOk())
-			.andReturn();
+				.andExpect(status().isOk())
+				.andReturn();
 
 		mockMvc.perform(asyncDispatch(result))
-			.andExpect(status().isOk());
+				.andExpect(status().isOk());
 
 		verify(likeService).likeTweet(userId, tweetId);
 	}
@@ -126,13 +116,13 @@ class LikeControllerTest {
 		UUID tweetId = UUID.randomUUID();
 		when(likeService.unlikeTweet(userId, tweetId)).thenReturn(CompletableFuture.completedFuture(null));
 
-		MvcResult result = mockMvc.perform(delete(BASE_URL + "/tweets/{tweetId}", tweetId)
+		MvcResult result = mockMvc.perform(delete(BASE_URL + "/{userId}/tweets/{tweetId}", userId, tweetId)
 				.contentType(MediaType.APPLICATION_JSON))
-			.andExpect(status().isNoContent())
-			.andReturn();
+				.andExpect(status().isNoContent())
+				.andReturn();
 
 		mockMvc.perform(asyncDispatch(result))
-			.andExpect(status().isNoContent());
+				.andExpect(status().isNoContent());
 
 		verify(likeService).unlikeTweet(userId, tweetId);
 	}
@@ -143,13 +133,13 @@ class LikeControllerTest {
 		LikeDto mockLikeDto = new LikeDto();
 		when(likeService.likeReply(userId, replyId)).thenReturn(CompletableFuture.completedFuture(mockLikeDto));
 
-		MvcResult result = mockMvc.perform(post(BASE_URL + "/replies/{replyId}", replyId)
+		MvcResult result = mockMvc.perform(post(BASE_URL + "/{userId}/replies/{replyId}", userId, replyId)
 				.contentType(MediaType.APPLICATION_JSON))
-			.andExpect(status().isOk())
-			.andReturn();
+				.andExpect(status().isOk())
+				.andReturn();
 
 		mockMvc.perform(asyncDispatch(result))
-			.andExpect(status().isOk());
+				.andExpect(status().isOk());
 
 		verify(likeService).likeReply(userId, replyId);
 	}
@@ -159,13 +149,13 @@ class LikeControllerTest {
 		UUID replyId = UUID.randomUUID();
 		when(likeService.unlikeReply(userId, replyId)).thenReturn(CompletableFuture.completedFuture(null));
 
-		MvcResult result = mockMvc.perform(delete(BASE_URL + "/replies/{replyId}", replyId)
+		MvcResult result = mockMvc.perform(delete(BASE_URL + "/{userId}/replies/{replyId}", userId, replyId)
 				.contentType(MediaType.APPLICATION_JSON))
-			.andExpect(status().isNoContent())
-			.andReturn();
+				.andExpect(status().isNoContent())
+				.andReturn();
 
 		mockMvc.perform(asyncDispatch(result))
-			.andExpect(status().isNoContent());
+				.andExpect(status().isNoContent());
 
 		verify(likeService).unlikeReply(userId, replyId);
 	}

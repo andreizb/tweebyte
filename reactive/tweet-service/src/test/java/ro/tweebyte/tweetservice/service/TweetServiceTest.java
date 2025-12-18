@@ -118,15 +118,16 @@ public class TweetServiceTest {
 		when(interactionClient.getTopReply(tweetId, "auth")).thenReturn(Mono.just(reply));
 
 		when(tweetRepository.findByUserIdInOrderByCreatedAtDesc(List.of(followedUserId)))
-			.thenReturn(Flux.just(tweetEntity));
+				.thenReturn(Flux.just(tweetEntity));
 		when(hashtagRepository.findHashtagsByTweetId(tweetId)).thenReturn(Flux.just(hashtag));
 		when(mentionRepository.findMentionsByTweetId(tweetId)).thenReturn(Flux.just(mention));
 
-		when(tweetMapper.mapEntityToDto(any(), any(), any(), any(), any(ReplyDto.class), any(), any())).thenReturn(tweetDto);
+		when(tweetMapper.mapEntityToDto(any(), any(), any(), any(), any(ReplyDto.class), any(), any()))
+				.thenReturn(tweetDto);
 
 		StepVerifier.create(tweetService.getUserFeed(userId, "auth"))
-			.expectNext(tweetDto)
-			.verifyComplete();
+				.expectNext(tweetDto)
+				.verifyComplete();
 
 		verify(interactionClient).getFollowedIds(userId, "auth");
 		verify(interactionClient).getLikesCount(tweetId, "auth");
@@ -153,7 +154,7 @@ public class TweetServiceTest {
 
 		when(redisTemplate.opsForValue()).thenReturn(reactiveValueOperations);
 		when(reactiveValueOperations.get(cacheKey))
-			.thenReturn(Mono.just("[\"" + followedIds.get(0).toString() + "\"]"));
+				.thenReturn(Mono.just("[\"" + followedIds.get(0).toString() + "\"]"));
 
 		when(tweetRepository.findByUserIdInOrderByCreatedAtDesc(any())).thenReturn(Flux.just(tweetEntity));
 		when(hashtagRepository.findHashtagsByTweetId(tweetId)).thenReturn(Flux.just(hashtag));
@@ -163,11 +164,12 @@ public class TweetServiceTest {
 		when(interactionClient.getRetweetsCount(tweetId, "auth")).thenReturn(Mono.just(3L));
 		when(interactionClient.getTopReply(tweetId, "auth")).thenReturn(Mono.just(new ReplyDto()));
 
-		when(tweetMapper.mapEntityToDto(any(), any(), any(), any(), any(ReplyDto.class), any(), any())).thenReturn(tweetDto);
+		when(tweetMapper.mapEntityToDto(any(), any(), any(), any(), any(ReplyDto.class), any(), any()))
+				.thenReturn(tweetDto);
 
 		StepVerifier.create(tweetService.getUserFeedWithCachedFollowed(userId, "auth", new Exception()))
-			.expectNext(tweetDto)
-			.verifyComplete();
+				.expectNext(tweetDto)
+				.verifyComplete();
 
 		verify(reactiveValueOperations).get(cacheKey);
 		verify(tweetRepository).findByUserIdInOrderByCreatedAtDesc(any());
@@ -206,11 +208,11 @@ public class TweetServiceTest {
 		when(mentionRepository.findMentionsByTweetId(tweetId)).thenReturn(Flux.empty());
 
 		when(tweetMapper.mapEntityToDto(tweetEntity, 10L, 5L, 3L, List.of(replyDto), List.of(), List.of()))
-			.thenReturn(tweetDto);
+				.thenReturn(tweetDto);
 
 		StepVerifier.create(tweetService.getTweet(tweetId, "auth"))
-			.expectNext(tweetDto)
-			.verifyComplete();
+				.expectNext(tweetDto)
+				.verifyComplete();
 
 		verify(tweetRepository).findById(tweetId);
 		verify(interactionClient).getRepliesForTweet(tweetId, "auth");
@@ -227,9 +229,9 @@ public class TweetServiceTest {
 		when(tweetRepository.findById(tweetId)).thenReturn(Mono.empty());
 
 		StepVerifier.create(tweetService.getTweet(tweetId, "auth"))
-			.expectErrorMatches(throwable -> throwable instanceof TweetNotFoundException &&
-				throwable.getMessage().equals("Tweet not found for id: " + tweetId))
-			.verify();
+				.expectErrorMatches(throwable -> throwable instanceof TweetNotFoundException &&
+						throwable.getMessage().equals("Tweet not found for id: " + tweetId))
+				.verify();
 	}
 
 	@Test
@@ -238,8 +240,8 @@ public class TweetServiceTest {
 		when(tweetMapper.mapEntityToDto(any())).thenReturn(tweetDto);
 
 		StepVerifier.create(tweetService.getUserTweetsSummary(userId))
-			.expectNext(tweetDto)
-			.verifyComplete();
+				.expectNext(tweetDto)
+				.verifyComplete();
 	}
 
 	@Test
@@ -255,8 +257,8 @@ public class TweetServiceTest {
 		when(tweetMapper.mapEntityToCreationDto(any())).thenReturn(tweetDto);
 
 		StepVerifier.create(tweetService.createTweet(request))
-			.expectNext(tweetDto)
-			.verifyComplete();
+				.expectNext(tweetDto)
+				.verifyComplete();
 	}
 
 	@Test
@@ -266,14 +268,12 @@ public class TweetServiceTest {
 		request.setUserId(userId);
 		request.setContent("Updated Content");
 
-		when(tweetRepository.findByIdAndUserId(tweetId, userId)).thenReturn(Mono.just(tweetEntity));
+		when(tweetRepository.findById(tweetId)).thenReturn(Mono.just(tweetEntity));
 		when(tweetMapper.mapUpdateRequestToEntity(request, tweetEntity)).thenReturn(tweetEntity);
 		when(tweetRepository.save(any())).thenReturn(Mono.just(tweetEntity));
-		when(mentionService.handleTweetUpdateMentions(request)).thenReturn(Mono.empty());
-		when(hashtagService.handleTweetUpdateHashtags(request)).thenReturn(Mono.empty());
 
 		StepVerifier.create(tweetService.updateTweet(request))
-			.verifyComplete();
+				.verifyComplete();
 	}
 
 	@Test
@@ -283,7 +283,7 @@ public class TweetServiceTest {
 		when(tweetRepository.deleteById(tweetId)).thenReturn(Mono.empty());
 
 		StepVerifier.create(tweetService.deleteTweet(tweetId))
-			.verifyComplete();
+				.verifyComplete();
 	}
 
 	@Test
@@ -299,8 +299,8 @@ public class TweetServiceTest {
 		when(tweetMapper.mapEntityToDto(tweetEntity, userDto)).thenReturn(tweetDto);
 
 		StepVerifier.create(tweetService.searchTweetsByHashtag(hashtag))
-			.expectNext(tweetDto)
-			.verifyComplete();
+				.expectNext(tweetDto)
+				.verifyComplete();
 	}
 
 	@Test
@@ -309,7 +309,7 @@ public class TweetServiceTest {
 		when(tweetMapper.mapEntityToDto(tweetEntity)).thenReturn(tweetDto);
 
 		StepVerifier.create(tweetService.getTweetSummary(tweetId))
-			.expectNext(tweetDto)
-			.verifyComplete();
+				.expectNext(tweetDto)
+				.verifyComplete();
 	}
 }

@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import jakarta.servlet.http.HttpServletRequest;
+
+import java.io.IOException;
 import java.time.ZonedDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -58,6 +60,15 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Throwable.class)
     public ResponseEntity<Map<String, Object>> handleException(Throwable ex, HttpServletRequest request) {
         return new ResponseEntity<>(getErrorsMap(List.of(ex.getMessage()), request, HttpStatus.INTERNAL_SERVER_ERROR), new HttpHeaders(), HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    @ExceptionHandler(IOException.class)
+    public ResponseEntity<Void> swallowIo(IOException ex, jakarta.servlet.http.HttpServletRequest req) {
+        String p = req.getRequestURI();
+        if (p != null && p.startsWith("/media/")) {
+            return ResponseEntity.status(499).build();
+        }
+        return ResponseEntity.status(500).build();
     }
 
     private Map<String, Object> getErrorsMap(List<String> errors, HttpServletRequest request, HttpStatus httpStatus) {

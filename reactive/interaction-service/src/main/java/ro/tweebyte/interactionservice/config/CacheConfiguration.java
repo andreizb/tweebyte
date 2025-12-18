@@ -1,5 +1,7 @@
 package ro.tweebyte.interactionservice.config;
 
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import org.springframework.boot.CommandLineRunner;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
@@ -8,10 +10,11 @@ import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.connection.lettuce.LettucePoolingClientConfiguration;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
-import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
-import org.springframework.data.redis.serializer.RedisSerializationContext;
-import org.springframework.data.redis.serializer.StringRedisSerializer;
+import org.springframework.data.redis.serializer.*;
 
 import java.time.Duration;
 
@@ -20,23 +23,15 @@ import java.time.Duration;
 public class CacheConfiguration {
 
     @Bean
-    public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
-        RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
-                .entryTtl(Duration.ofMinutes(5));
-
-        return RedisCacheManager.builder(connectionFactory)
-                .cacheDefaults(config)
+    public ReactiveRedisTemplate<String, byte[]> reactiveRedisTemplate(LettuceConnectionFactory cf) {
+        RedisSerializationContext<String, byte[]> ctx =
+            RedisSerializationContext.<String, byte[]>newSerializationContext(RedisSerializer.string())
+                .value(RedisSerializer.byteArray())
+                .hashKey(RedisSerializer.string())
+                .hashValue(RedisSerializer.byteArray())
                 .build();
-    }
 
-    @Bean
-    public ReactiveRedisTemplate<String, Object> redisTemplate(ReactiveRedisConnectionFactory factory) {
-        Jackson2JsonRedisSerializer<Object> serializer = new Jackson2JsonRedisSerializer<>(Object.class);
-        RedisSerializationContext<String, Object> serializationContext =
-                RedisSerializationContext.<String, Object>newSerializationContext(StringRedisSerializer.UTF_8)
-                        .value(serializer)
-                        .build();
-        return new ReactiveRedisTemplate<>(factory, serializationContext);
+        return new ReactiveRedisTemplate<>(cf, ctx);
     }
 
 }

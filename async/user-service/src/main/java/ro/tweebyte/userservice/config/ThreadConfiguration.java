@@ -26,9 +26,7 @@ public class ThreadConfiguration {
 
     @Bean(name = "userExecutorService")
     public ExecutorService userExecutorService() {
-        return new DelegatingSecurityContextExecutorService(
-            userEnableCustomThreadPool ? Executors.newCachedThreadPool() : ForkJoinPool.commonPool()
-        );
+        return userEnableCustomThreadPool ? Executors.newCachedThreadPool() : ForkJoinPool.commonPool();
     }
 
 }

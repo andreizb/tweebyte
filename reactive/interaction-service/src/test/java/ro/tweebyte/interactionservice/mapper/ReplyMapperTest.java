@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ReplyMapperTest {
 
-	private final ReplyMapper mapper = new ReplyMapperImpl();
+	private final ReplyMapper mapper = org.mapstruct.factory.Mappers.getMapper(ReplyMapper.class);
 
 	@Test
 	void mapRequestToEntity_ShouldMapCorrectly() {
@@ -43,8 +43,8 @@ class ReplyMapperTest {
 		UUID id = UUID.randomUUID();
 
 		ReplyEntity replyEntity = ReplyEntity.builder()
-			.id(id)
-			.build();
+				.id(id)
+				.build();
 
 		ReplyDto replyDto = mapper.mapEntityToCreationDto(replyEntity);
 
@@ -61,11 +61,11 @@ class ReplyMapperTest {
 		String userName = "testUser";
 
 		ReplyEntity replyEntity = ReplyEntity.builder()
-			.id(id)
-			.userId(userId)
-			.content(content)
-			.createdAt(createdAt)
-			.build();
+				.id(id)
+				.userId(userId)
+				.content(content)
+				.createdAt(createdAt)
+				.build();
 
 		ReplyDto replyDto = mapper.mapEntityToDto(replyEntity, userName);
 

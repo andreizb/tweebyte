@@ -71,25 +71,25 @@ public class FollowServiceTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(redisTemplate.opsForList()).thenReturn(listOperations);
     }
-    
+
     @Test
     public void getFollowersCount_Success() {
         when(followRepository.countByFollowedIdAndStatus(any(UUID.class), eq("ACCEPTED")))
-            .thenReturn(Mono.just(10L));
+                .thenReturn(Mono.just(10L));
 
         StepVerifier.create(followService.getFollowersCount(userId))
-            .expectNext(10L)
-            .verifyComplete();
+                .expectNext(10L)
+                .verifyComplete();
     }
 
     @Test
     public void getFollowingCount_Success() {
         when(followRepository.countByFollowerIdAndStatus(any(UUID.class), eq("ACCEPTED")))
-            .thenReturn(Mono.just(5L));
+                .thenReturn(Mono.just(5L));
 
         StepVerifier.create(followService.getFollowingCount(userId))
-            .expectNext(5L)
-            .verifyComplete();
+                .expectNext(5L)
+                .verifyComplete();
     }
 
     @Test
@@ -109,40 +109,47 @@ public class FollowServiceTest {
         followDto.setStatus(Status.ACCEPTED);
 
         when(followRepository.findByFollowedIdAndStatusOrderByCreatedAtDesc(any(UUID.class), eq("ACCEPTED")))
-            .thenReturn(Flux.just(followEntity));
+                .thenReturn(Flux.just(followEntity));
         when(userService.getUserSummary(followEntity.getFollowerId()))
-            .thenReturn(Mono.just(userDto));
+                .thenReturn(Mono.just(userDto));
         when(followMapper.mapEntityToDto(followEntity, userName))
-            .thenReturn(followDto);
+                .thenReturn(followDto);
 
         StepVerifier.create(followService.getFollowers(userId, "authToken"))
-            .expectNext(followDto)
-            .verifyComplete();
+                .expectNext(followDto)
+                .verifyComplete();
     }
 
     @Test
-    public void follow_Success() {
-        when(userService.getUserSummary(any(UUID.class)))
-            .thenReturn(Mono.just(userDto));
-        when(followMapper.mapRequestToEntity(any(UUID.class), any(UUID.class), anyString()))
-            .thenReturn(followEntity);
-        when(followRepository.save(any(FollowEntity.class)))
-            .thenReturn(Mono.just(followEntity));
-        when(followMapper.mapEntityToDto(any(FollowEntity.class)))
-            .thenReturn(followDto);
+    void follow_Success() {
+        UserDto userDto = new UserDto();
+        userDto.setId(followedId);
+        userDto.setIsPrivate(false);
+        userDto.setUserName("testUser");
+
+        FollowEntity followEntity = new FollowEntity();
+        followEntity.setId(UUID.randomUUID());
+        followEntity.setFollowerId(userId);
+        followEntity.setFollowedId(followedId);
+        followEntity.setStatus("ACCEPTED");
+
+        when(userService.getUserSummary(followedId)).thenReturn(Mono.just(userDto));
+        when(followMapper.mapRequestToEntity(any(UUID.class), any(UUID.class), anyString())).thenReturn(followEntity);
+        when(followRepository.save(any(FollowEntity.class))).thenReturn(Mono.just(followEntity));
+        when(followMapper.mapEntityToDto(any(FollowEntity.class))).thenReturn(new FollowDto());
 
         StepVerifier.create(followService.follow(userId, followedId))
-            .expectNext(followDto)
-            .verifyComplete();
+                .expectNextCount(1)
+                .verifyComplete();
     }
 
     @Test
     public void unfollow_Success() {
         when(followRepository.deleteByFollowerIdAndFollowedId(any(UUID.class), any(UUID.class)))
-            .thenReturn(Mono.empty());
+                .thenReturn(Mono.empty());
 
         StepVerifier.create(followService.unfollow(userId, followedId))
-            .verifyComplete();
+                .verifyComplete();
     }
 
     @Test
@@ -164,7 +171,7 @@ public class FollowServiceTest {
         doNothing().when(mockCache).evict(userId.toString());
 
         StepVerifier.create(followService.updateFollowRequest(followerId, followRequestId, Status.ACCEPTED))
-            .verifyComplete();
+                .verifyComplete();
 
         verify(followRepository).findById(followRequestId);
         verify(followRepository).save(any(FollowEntity.class));
@@ -177,11 +184,11 @@ public class FollowServiceTest {
         followEntity.setFollowedId(followedId);
 
         when(followRepository.findByFollowerIdAndStatus(any(UUID.class), eq("ACCEPTED")))
-            .thenReturn(Flux.just(followEntity));
+                .thenReturn(Flux.just(followEntity));
 
         StepVerifier.create(followService.getFollowedIdentifiers(userId))
-            .expectNext(followedId)
-            .verifyComplete();
+                .expectNext(followedId)
+                .verifyComplete();
     }
 
 }

@@ -3,8 +3,6 @@ package ro.tweebyte.userservice.util;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
@@ -34,12 +32,11 @@ public class JwtUtil {
     public KeyStore keyStore() {
         try {
             KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
-            InputStream resourceAsStream = Thread.currentThread().getContextClassLoader().getResourceAsStream(keyStorePath);
+            InputStream resourceAsStream = Thread.currentThread().getContextClassLoader()
+                    .getResourceAsStream(keyStorePath);
             keyStore.load(resourceAsStream, keyStorePassword.toCharArray());
             return keyStore;
         } catch (Exception ignored) {
-            // TODO do later
-//            log.error("Unable to load keystore: {}", keyStorePath, e);
         }
 
         throw new IllegalArgumentException("Unable to load keystore");
@@ -53,8 +50,6 @@ public class JwtUtil {
                 return (RSAPrivateKey) key;
             }
         } catch (Exception ignored) {
-            // TODO do later
-//            log.error("Unable to load private key from keystore: {}", keyStorePath, e);
         }
 
         throw new IllegalArgumentException("Unable to load private key");
@@ -70,18 +65,9 @@ public class JwtUtil {
                 return (RSAPublicKey) publicKey;
             }
         } catch (Exception ignored) {
-            // TODO do later
-//            log.error("Unable to load private key from keystore: {}", keyStorePath, e);
         }
 
         throw new IllegalArgumentException("Unable to load RSA public key");
-    }
-
-    @Bean
-    public JwtDecoder jwtDecoder(RSAPublicKey rsaPublicKey) {
-        return NimbusJwtDecoder
-            .withPublicKey(rsaPublicKey)
-            .build();
     }
 
     @Bean

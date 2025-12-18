@@ -1,7 +1,6 @@
 package ro.tweebyte.interactionservice.controller;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -20,23 +19,23 @@ public class RetweetController {
 
     private final RetweetService retweetService;
 
-    @PostMapping
-    public Mono<RetweetDto> createRetweet(@AuthenticationPrincipal CustomUserDetails userDetails,
+    @PostMapping("/{userId}")
+    public Mono<RetweetDto> createRetweet(@PathVariable(value = "userId") UUID userId,
                                           @RequestBody RetweetCreateRequest request) {
-        return retweetService.createRetweet(request.setRetweeterId(userDetails.getUserId()));
+        return retweetService.createRetweet(request.setRetweeterId(userId));
     }
 
-    @PutMapping("/{retweetId}")
-    public Mono<Void> updateRetweet(@AuthenticationPrincipal CustomUserDetails userDetails,
+    @PutMapping("/{userId}/{retweetId}")
+    public Mono<Void> updateRetweet(@PathVariable(value = "userId") UUID userId,
                                                  @PathVariable UUID retweetId,
                                                  @RequestBody RetweetUpdateRequest request) {
-        return retweetService.updateRetweet(request.setId(retweetId).setRetweeterId(userDetails.getUserId()));
+        return retweetService.updateRetweet(request.setId(retweetId).setRetweeterId(userId));
     }
 
-    @DeleteMapping("/{retweetId}")
-    public Mono<Void> deleteRetweet(@AuthenticationPrincipal CustomUserDetails userDetails,
+    @DeleteMapping("/{userId}/{retweetId}")
+    public Mono<Void> deleteRetweet(@PathVariable(value = "userId") UUID userId,
                                                  @PathVariable UUID retweetId) {
-        return retweetService.deleteRetweet(retweetId, userDetails.getUserId());
+        return retweetService.deleteRetweet(retweetId, userId);
     }
 
     @GetMapping("/user/{userId}")

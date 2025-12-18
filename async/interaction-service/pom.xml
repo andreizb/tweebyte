@@ -23,15 +23,15 @@
       </dependency>
       <dependency>
          <groupId>org.springframework.boot</groupId>
-         <artifactId>spring-boot-starter-security</artifactId>
-      </dependency>
-      <dependency>
-         <groupId>org.springframework.boot</groupId>
          <artifactId>spring-boot-starter-data-jpa</artifactId>
       </dependency>
       <dependency>
          <groupId>org.springframework.boot</groupId>
          <artifactId>spring-boot-starter-validation</artifactId>
+      </dependency>
+      <dependency>
+         <groupId>org.springframework.boot</groupId>
+         <artifactId>spring-boot-starter-actuator</artifactId>
       </dependency>
       <dependency>
          <groupId>org.springframework.boot</groupId>
@@ -56,19 +56,14 @@
          <artifactId>h2</artifactId>
          <scope>test</scope>
       </dependency>
-      <dependency>
-         <groupId>com.auth0</groupId>
-         <artifactId>java-jwt</artifactId>
-         <version>4.3.0</version>
-      </dependency>
-      <dependency>
-         <groupId>org.springframework.security</groupId>
-         <artifactId>spring-security-oauth2-jose</artifactId>
-      </dependency>
+       <dependency>
+           <groupId>org.apache.commons</groupId>
+           <artifactId>commons-pool2</artifactId>
+       </dependency>
       <dependency>
          <groupId>org.projectlombok</groupId>
          <artifactId>lombok</artifactId>
-         <version>1.18.30</version>
+         <version>1.18.34</version>
       </dependency>
       <dependency>
          <groupId>org.mapstruct</groupId>
@@ -76,15 +71,24 @@
          <version>1.5.5.Final</version>
       </dependency>
       <dependency>
+         <groupId>org.mapstruct</groupId>
+         <artifactId>mapstruct-processor</artifactId>
+         <version>1.5.5.Final</version>
+         <scope>provided</scope>
+      </dependency>
+      <dependency>
          <groupId>org.springframework.boot</groupId>
          <artifactId>spring-boot-starter-test</artifactId>
          <scope>test</scope>
       </dependency>
-      <dependency>
-         <groupId>org.springframework.security</groupId>
-         <artifactId>spring-security-test</artifactId>
-         <scope>test</scope>
-      </dependency>
+       <dependency>
+           <groupId>com.fasterxml.jackson.datatype</groupId>
+           <artifactId>jackson-datatype-jsr310</artifactId>
+       </dependency>
+       <dependency>
+           <groupId>io.micrometer</groupId>
+           <artifactId>micrometer-registry-prometheus</artifactId>
+       </dependency>
    </dependencies>
 
    <build>
@@ -97,26 +101,7 @@
          <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-compiler-plugin</artifactId>
-            <version>3.12.1</version>
-            <configuration>
-               <annotationProcessorPaths>
-                  <path>
-                     <groupId>org.projectlombok</groupId>
-                     <artifactId>lombok</artifactId>
-                     <version>1.18.30</version>
-                  </path>
-                  <path>
-                     <groupId>org.mapstruct</groupId>
-                     <artifactId>mapstruct-processor</artifactId>
-                     <version>1.5.5.Final</version>
-                  </path>
-                  <path>
-                     <groupId>org.projectlombok</groupId>
-                     <artifactId>lombok-mapstruct-binding</artifactId>
-                     <version>0.2.0</version>
-                  </path>
-               </annotationProcessorPaths>
-            </configuration>
+            <version>3.13.0</version>
          </plugin>
       </plugins>
    </build>

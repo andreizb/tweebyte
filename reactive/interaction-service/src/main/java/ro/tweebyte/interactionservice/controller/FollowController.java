@@ -2,7 +2,6 @@ package ro.tweebyte.interactionservice.controller;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -11,6 +10,7 @@ import ro.tweebyte.interactionservice.model.FollowDto;
 import ro.tweebyte.interactionservice.model.Status;
 import ro.tweebyte.interactionservice.service.FollowService;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -27,9 +27,8 @@ public class FollowController {
     }
 
     @GetMapping("/{userId}/following")
-    public Flux<FollowDto> getFollowing(@PathVariable(value = "userId") UUID userId,
-                                        @RequestHeader(name = "Authorization") String authorization) {
-        return followService.getFollowing(userId, authorization);
+    public Mono<byte[]> getFollowing(@PathVariable(value = "userId") UUID userId) {
+        return followService.getFollowing(userId, null);
     }
 
     @GetMapping("/{userId}/followers/count")
@@ -48,8 +47,8 @@ public class FollowController {
     }
 
     @GetMapping("/{userId}/requests")
-    public Flux<FollowDto> getFollowRequests(@AuthenticationPrincipal CustomUserDetails userDetails) {
-        return followService.getFollowRequests(userDetails.getUserId());
+    public Flux<FollowDto> getFollowRequests(@PathVariable(value = "userId") UUID userId) {
+        return followService.getFollowRequests(userId);
     }
 
     @PostMapping("/{userId}/{followedId}")
@@ -59,19 +58,19 @@ public class FollowController {
         return followService.follow(userId, followedId);
     }
 
-    @PutMapping("/{followRequestId}/{status}")
+    @PutMapping("/{userId}/{followRequestId}/{status}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public Mono<Void> updateFollowRequest(@AuthenticationPrincipal CustomUserDetails userDetails,
+    public Mono<Void> updateFollowRequest(@PathVariable(value = "userId") UUID userId,
                                                        @PathVariable(value = "followRequestId") UUID followRequestId,
                                                        @PathVariable(value = "status") Status status) {
-        return followService.updateFollowRequest(userDetails.getUserId(), followRequestId, status);
+        return followService.updateFollowRequest(userId, followRequestId, status);
     }
 
-    @DeleteMapping("/{followedId}")
+    @DeleteMapping("/{userId}/{followedId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public Mono<Void> unfollow(@AuthenticationPrincipal CustomUserDetails userDetails,
+    public Mono<Void> unfollow(@PathVariable(value = "userId") UUID userId,
                                             @PathVariable(value = "followedId") UUID followedId) {
-        return followService.unfollow(userDetails.getUserId(), followedId);
+        return followService.unfollow(userId, followedId);
     }
 
 }

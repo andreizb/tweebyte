@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class FollowMapperTest {
 
-	private final FollowMapper mapper = new FollowMapperImpl();
+	private final FollowMapper mapper = org.mapstruct.factory.Mappers.getMapper(FollowMapper.class);
 
 	@Test
 	void mapRequestToEntity_ShouldMapCorrectly() {
@@ -40,12 +40,12 @@ class FollowMapperTest {
 		String status = "ACCEPTED";
 
 		FollowEntity followEntity = FollowEntity.builder()
-			.id(id)
-			.followerId(followerId)
-			.followedId(followedId)
-			.createdAt(createdAt)
-			.status(status)
-			.build();
+				.id(id)
+				.followerId(followerId)
+				.followedId(followedId)
+				.createdAt(createdAt)
+				.status(status)
+				.build();
 
 		FollowDto followDto = mapper.mapEntityToDto(followEntity);
 
@@ -68,12 +68,12 @@ class FollowMapperTest {
 		String userName = "testUser";
 
 		FollowEntity followEntity = FollowEntity.builder()
-			.id(id)
-			.followerId(followerId)
-			.followedId(followedId)
-			.createdAt(createdAt)
-			.status(status)
-			.build();
+				.id(id)
+				.followerId(followerId)
+				.followedId(followedId)
+				.createdAt(createdAt)
+				.status(status)
+				.build();
 
 		FollowDto followDto = mapper.mapEntityToDto(followEntity, userName);
 

@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
-@Mapper(componentModel = "spring")
+//@Mapper(componentModel = "spring")
 public abstract class UserMapper {
 
     @Autowired

@@ -1,13 +1,13 @@
 package ro.tweebyte.tweetservice.mapper;
 
-import org.mapstruct.Mapper;
+import org.springframework.stereotype.Component;
 import ro.tweebyte.tweetservice.entity.HashtagEntity;
 import ro.tweebyte.tweetservice.model.HashtagDto;
 
 import java.util.UUID;
 
-@Mapper(componentModel = "spring")
-public abstract class HashtagMapper {
+@Component
+public class HashtagMapper {
 
     public HashtagEntity mapTextToEntity(String text) {
         HashtagEntity hashtagEntity = new HashtagEntity();
@@ -15,7 +15,15 @@ public abstract class HashtagMapper {
         hashtagEntity.setId(UUID.randomUUID());
         hashtagEntity.setInsertable(true);
         return hashtagEntity;
-    };
+    }
 
-    public abstract HashtagDto mapEntityToDto(HashtagEntity hashtagEntity);
+    public HashtagDto mapEntityToDto(HashtagEntity hashtagEntity) {
+        if (hashtagEntity == null) {
+            return null;
+        }
+        return HashtagDto.builder()
+                .id(hashtagEntity.getId())
+                .text(hashtagEntity.getText())
+                .build();
+    }
 }

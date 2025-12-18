@@ -1,7 +1,7 @@
 package ro.tweebyte.tweetservice.mapper;
 
 import org.junit.jupiter.api.Test;
-import org.mapstruct.factory.Mappers;
+
 import ro.tweebyte.tweetservice.entity.MentionEntity;
 import ro.tweebyte.tweetservice.entity.TweetEntity;
 
@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 class MentionMapperTest {
 
-    private final MentionMapper mentionMapper = Mappers.getMapper(MentionMapper.class);
+    private final MentionMapper mentionMapper = new MentionMapper();
 
     @Test
     void testMapFieldsToEntity() {

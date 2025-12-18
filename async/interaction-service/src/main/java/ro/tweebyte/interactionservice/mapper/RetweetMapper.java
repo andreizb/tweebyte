@@ -1,15 +1,14 @@
 package ro.tweebyte.interactionservice.mapper;
 
-import org.mapstruct.Mapper;
-import org.mapstruct.MappingTarget;
+import org.springframework.stereotype.Component;
 import ro.tweebyte.interactionservice.entity.RetweetEntity;
 import ro.tweebyte.interactionservice.model.*;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-@Mapper(componentModel = "spring")
-public abstract class RetweetMapper {
+@Component
+public class RetweetMapper {
 
     public RetweetEntity mapRequestToEntity(RetweetCreateRequest request) {
         RetweetEntity retweetEntity = mapCreationRequestToEntity(request);
@@ -18,22 +17,54 @@ public abstract class RetweetMapper {
         return retweetEntity;
     }
 
-    public abstract RetweetDto mapEntityToDto(RetweetEntity entity);
+    public RetweetDto mapEntityToDto(RetweetEntity entity) {
+        if (entity == null) {
+            return null;
+        }
+        RetweetDto dto = new RetweetDto();
+        dto.setId(entity.getId());
+        dto.setContent(entity.getContent());
+        dto.setCreatedAt(entity.getCreatedAt());
+        return dto;
+    }
 
     public RetweetDto mapEntityToDto(RetweetEntity entity, UserDto user) {
         RetweetDto dto = mapEntityToDto(entity);
-        dto.setUser(user);
+        if (dto != null) {
+            dto.setUser(user);
+        }
         return dto;
     }
 
     public RetweetDto mapEntityToDto(RetweetEntity entity, UserDto user, TweetDto tweet) {
         RetweetDto dto = mapEntityToDto(entity, user);
-        dto.setTweet(tweet);
+        if (dto != null) {
+            dto.setTweet(tweet);
+        }
         return dto;
     }
 
-    public abstract void mapRequestToEntity(RetweetUpdateRequest request, @MappingTarget RetweetEntity entity);
+    public void mapRequestToEntity(RetweetUpdateRequest request, RetweetEntity entity) {
+        if (request == null || entity == null) {
+            return;
+        }
+        if (request.getContent() != null) {
+            entity.setContent(request.getContent());
+        }
+        if (request.getRetweeterId() != null) {
+            entity.setRetweeterId(request.getRetweeterId());
+        }
+    }
 
-    protected abstract RetweetEntity mapCreationRequestToEntity(RetweetCreateRequest request);
+    protected RetweetEntity mapCreationRequestToEntity(RetweetCreateRequest request) {
+        if (request == null) {
+            return null;
+        }
+        RetweetEntity entity = new RetweetEntity();
+        entity.setContent(request.getContent());
+        entity.setRetweeterId(request.getRetweeterId());
+        entity.setOriginalTweetId(request.getOriginalTweetId());
+        return entity;
+    }
 
 }

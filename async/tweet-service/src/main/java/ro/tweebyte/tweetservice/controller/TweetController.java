@@ -2,7 +2,6 @@ package ro.tweebyte.tweetservice.controller;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import ro.tweebyte.tweetservice.model.*;
 import ro.tweebyte.tweetservice.service.HashtagService;
@@ -21,10 +20,10 @@ public class TweetController {
     private final TweetService tweetService;
     private final HashtagService hashtagService;
 
-    @GetMapping("/feed")
+    @GetMapping("/{userId}/feed")
     public CompletableFuture<List<TweetDto>> getFeed(@RequestHeader(value = "Authorization") String authorization,
-                                                     @AuthenticationPrincipal CustomUserDetails userDetails) {
-        return tweetService.getUserFeed(userDetails.getUserId(), authorization);
+                                                     @PathVariable(value = "userId") UUID userId) {
+        return tweetService.getUserFeed(userId, authorization);
     }
 
     @GetMapping("/{tweetId}")
@@ -64,10 +63,10 @@ public class TweetController {
         return tweetService.getUserTweetsSummary(userId);
     }
 
-    @PostMapping
-    public CompletableFuture<TweetDto> createTweet(@AuthenticationPrincipal CustomUserDetails userDetails,
+    @PostMapping("/{userId}")
+    public CompletableFuture<TweetDto> createTweet(@PathVariable(value = "userId") UUID userId,
                                                    @Valid @RequestBody TweetCreationRequest request) {
-        return tweetService.createTweet(request.setUserId(userDetails.getUserId()));
+        return tweetService.createTweet(request.setUserId(userId));
     }
 
     @PutMapping("/{tweetId}")

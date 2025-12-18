@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 
 @SpringBootTest
-@AutoConfigureMockMvc
+@AutoConfigureMockMvc(addFilters = false)
 public class AuthenticationControllerTest {
 
     @Autowired
@@ -26,7 +26,8 @@ public class AuthenticationControllerTest {
 
     @Test
     public void testUserRegister() throws Exception {
-        MockMultipartFile pictureFile = new MockMultipartFile("picture", "test.jpg", "image/jpeg", "test picture".getBytes());
+        MockMultipartFile pictureFile = new MockMultipartFile("picture", "test.jpg", "image/jpeg",
+                "test picture".getBytes());
 
         UserRegisterRequest request = new UserRegisterRequest();
         request.setEmail("test@test.com");
@@ -39,8 +40,8 @@ public class AuthenticationControllerTest {
                 .param("password", request.getPassword())
                 .param("birthDate", "09/06/2023")
                 .param("email", request.getEmail()))
-            .andExpect(MockMvcResultMatchers.status().isOk())
-            .andDo(print());
+                .andExpect(MockMvcResultMatchers.status().isOk())
+                .andDo(print());
     }
 
     @Test
@@ -52,8 +53,8 @@ public class AuthenticationControllerTest {
         mockMvc.perform(MockMvcRequestBuilders.post("/auth/login")
                 .contentType("application/json")
                 .content(asJsonString(request)))
-            .andExpect(MockMvcResultMatchers.status().isOk())
-            .andDo(print());
+                .andExpect(MockMvcResultMatchers.status().isOk())
+                .andDo(print());
     }
 
     private String asJsonString(final Object obj) {

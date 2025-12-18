@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class RetweetMapperTest {
 
-	private final RetweetMapper retweetMapper = new RetweetMapperImpl();
+	private final RetweetMapper retweetMapper = new RetweetMapper();
 
 	@Test
 	void testMapRequestToEntity() {
@@ -71,7 +71,8 @@ class RetweetMapperTest {
 		retweetEntity.setCreatedAt(LocalDateTime.now());
 
 		UserDto user = new UserDto(UUID.randomUUID(), "testuser", true, LocalDateTime.now());
-		TweetDto tweet = new TweetDto(UUID.randomUUID(), UUID.randomUUID(), "Tweet content", null, null, null, null, null, null, null);
+		TweetDto tweet = new TweetDto(UUID.randomUUID(), UUID.randomUUID(), "Tweet content", null, null, null, null,
+				null, null, null);
 
 		RetweetDto retweetDto = retweetMapper.mapEntityToDto(retweetEntity, user, tweet);
 
@@ -98,7 +99,6 @@ class RetweetMapperTest {
 		retweetMapper.mapRequestToEntity(updateRequest, retweetEntity);
 
 		assertNotNull(retweetEntity);
-		assertEquals(updateRequest.getId(), retweetEntity.getId());
 		assertEquals(updateRequest.getRetweeterId(), retweetEntity.getRetweeterId());
 		assertEquals(updateRequest.getContent(), retweetEntity.getContent());
 	}

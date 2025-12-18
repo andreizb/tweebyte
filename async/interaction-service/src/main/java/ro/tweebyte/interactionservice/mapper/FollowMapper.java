@@ -1,15 +1,14 @@
 package ro.tweebyte.interactionservice.mapper;
 
-import org.mapstruct.Mapper;
-import org.mapstruct.Mapping;
+import org.springframework.stereotype.Component;
 import ro.tweebyte.interactionservice.entity.FollowEntity;
 import ro.tweebyte.interactionservice.model.FollowDto;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-@Mapper(componentModel = "spring")
-public abstract class FollowMapper {
+@Component
+public class FollowMapper {
 
     public FollowEntity mapRequestToEntity(UUID followerId, UUID followedId, FollowEntity.Status status) {
         FollowEntity followEntity = mapCreationRequestToEntity(followerId, followedId, status);
@@ -18,10 +17,45 @@ public abstract class FollowMapper {
         return followEntity;
     }
 
-    public abstract FollowDto mapEntityToDto(FollowEntity followEntity);
+    public FollowDto mapEntityToDto(FollowEntity followEntity) {
+        if (followEntity == null) {
+            return null;
+        }
 
-    public abstract FollowDto mapEntityToDto(FollowEntity followEntity, String userName);
+        FollowDto followDto = new FollowDto();
+        followDto.setId(followEntity.getId());
+        followDto.setFollowerId(followEntity.getFollowerId());
+        followDto.setFollowedId(followEntity.getFollowedId());
+        followDto.setCreatedAt(followEntity.getCreatedAt());
+        followDto.setStatus(mapStatus(followEntity.getStatus()));
 
-    protected abstract FollowEntity mapCreationRequestToEntity(UUID followerId, UUID followedId, FollowEntity.Status status);
+        return followDto;
+    }
 
+    public FollowDto mapEntityToDto(FollowEntity followEntity, String userName) {
+        if (followEntity == null && userName == null) {
+            return null;
+        }
+        FollowDto dto = mapEntityToDto(followEntity);
+        if (dto == null) {
+            dto = new FollowDto();
+        }
+        dto.setUserName(userName);
+        return dto;
+    }
+
+    protected FollowEntity mapCreationRequestToEntity(UUID followerId, UUID followedId, FollowEntity.Status status) {
+        FollowEntity followEntity = new FollowEntity();
+        followEntity.setFollowerId(followerId);
+        followEntity.setFollowedId(followedId);
+        followEntity.setStatus(status);
+        return followEntity;
+    }
+
+    private FollowDto.Status mapStatus(FollowEntity.Status status) {
+        if (status == null) {
+            return null;
+        }
+        return FollowDto.Status.valueOf(status.name());
+    }
 }

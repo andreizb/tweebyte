@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class FollowMapperTest {
 
-	private final FollowMapper followMapper = new FollowMapperImpl();
+	private final FollowMapper followMapper = new FollowMapper();
 
 	@Test
 	void testMapRequestToEntity() {

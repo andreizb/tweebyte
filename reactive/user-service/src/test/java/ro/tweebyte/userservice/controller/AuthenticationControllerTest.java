@@ -4,11 +4,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.security.reactive.ReactiveSecurityAutoConfiguration;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
-import org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.util.LinkedMultiValueMap;
@@ -25,7 +23,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
 @ExtendWith(SpringExtension.class)
-@WebFluxTest(controllers = AuthenticationController.class, excludeAutoConfiguration = {ReactiveSecurityAutoConfiguration.class})
+@WebFluxTest(controllers = AuthenticationController.class)
 public class AuthenticationControllerTest {
 
     @Autowired
@@ -33,6 +31,9 @@ public class AuthenticationControllerTest {
 
     @MockBean
     private AuthenticationService authenticationService;
+
+    @MockBean
+    private ro.tweebyte.userservice.mapper.UserMapper userMapper;
 
     @BeforeEach
     public void setUp() {
@@ -45,14 +46,13 @@ public class AuthenticationControllerTest {
     public void userLogin() {
         UserLoginRequest request = new UserLoginRequest("user", "pass");
         webTestClient
-            .mutateWith(SecurityMockServerConfigurers.csrf())
-            .post().uri("/auth/login")
-            .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(request)
-            .exchange()
-            .expectStatus().isOk()
-            .expectBody()
-            .jsonPath("$.token").isEqualTo("TokenHere");
+                .post().uri("/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(request)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.token").isEqualTo("TokenHere");
     }
 
     @Test
@@ -64,7 +64,6 @@ public class AuthenticationControllerTest {
         formData.add("userName", "JohnDoe");
 
         webTestClient
-                .mutateWith(SecurityMockServerConfigurers.csrf())
                 .post().uri("/auth/register")
                 .contentType(MediaType.MULTIPART_FORM_DATA)
                 .bodyValue(formData)

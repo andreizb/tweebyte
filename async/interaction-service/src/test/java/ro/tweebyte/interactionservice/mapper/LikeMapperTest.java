@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class LikeMapperTest {
 
-	private final LikeMapper likeMapper = new LikeMapperImpl();
+	private final LikeMapper likeMapper = new LikeMapper();
 
 	@Test
 	void testMapRequestToEntity() {

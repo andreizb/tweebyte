@@ -1,7 +1,7 @@
 package ro.tweebyte.tweetservice.mapper;
 
 import org.junit.jupiter.api.Test;
-import org.mapstruct.factory.Mappers;
+
 import ro.tweebyte.tweetservice.entity.HashtagEntity;
 import ro.tweebyte.tweetservice.model.HashtagDto;
 
@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class HashtagMapperTest {
 
-    private final HashtagMapper hashtagMapper = Mappers.getMapper(HashtagMapper.class);
+    private final HashtagMapper hashtagMapper = new HashtagMapper();
 
     @Test
     void testMapTextToEntity() {

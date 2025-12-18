@@ -2,7 +2,6 @@ package ro.tweebyte.interactionservice.controller;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -34,30 +33,30 @@ public class LikeController {
         return likeService.getTweetLikesCount(tweetId);
     }
 
-    @PostMapping("/tweets/{tweetId}")
-    public Mono<LikeDto> likeTweet(@AuthenticationPrincipal CustomUserDetails userDetails,
+    @PostMapping("/{userId}/tweets/{tweetId}")
+    public Mono<LikeDto> likeTweet(@PathVariable(value = "userId") UUID userId,
                                                 @PathVariable(value = "tweetId") UUID tweetId) {
-        return likeService.likeTweet(userDetails.getUserId(), tweetId);
+        return likeService.likeTweet(userId, tweetId);
     }
 
-    @DeleteMapping("/tweets/{tweetId}")
+    @DeleteMapping("/{userId}/tweets/{tweetId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public Mono<Void> unlikeTweet(@AuthenticationPrincipal CustomUserDetails userDetails,
+    public Mono<Void> unlikeTweet(@PathVariable(value = "userId") UUID userId,
                                                @PathVariable(value = "tweetId") UUID tweetId) {
-        return likeService.unlikeTweet(userDetails.getUserId(), tweetId);
+        return likeService.unlikeTweet(userId, tweetId);
     }
 
-    @PostMapping("/replies/{replyId}")
-    public Mono<LikeDto> likeReply(@AuthenticationPrincipal CustomUserDetails userDetails,
+    @PostMapping("/{userId}/replies/{replyId}")
+    public Mono<LikeDto> likeReply(@PathVariable(value = "userId") UUID userId,
                                                 @PathVariable(value = "replyId") UUID replyId) {
-        return likeService.likeReply(userDetails.getUserId(), replyId);
+        return likeService.likeReply(userId, replyId);
     }
 
-    @DeleteMapping("/replies/{replyId}")
+    @DeleteMapping("/{userId}/replies/{replyId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public Mono<Void> unlikeReply(@AuthenticationPrincipal CustomUserDetails userDetails,
+    public Mono<Void> unlikeReply(@PathVariable(value = "userId") UUID userId,
                                                @PathVariable(value = "replyId") UUID replyId) {
-        return likeService.unlikeReply(userDetails.getUserId(), replyId);
+        return likeService.unlikeReply(userId, replyId);
     }
 
 }

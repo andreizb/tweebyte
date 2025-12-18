@@ -111,9 +111,11 @@ public class TweetServiceTest {
         tweetSummary2.setTopReply(replyDto);
 
         List<TweetSummaryDto> tweetSummaryDtos = Arrays.asList(tweetSummary1, tweetSummary2);
-        when(interactionClient.getTweetSummaries(anyList(), eq("AUTH_TOKEN"))).thenReturn(CompletableFuture.completedFuture(tweetSummaryDtos));
+        when(interactionClient.getTweetSummaries(anyList(), eq("AUTH_TOKEN")))
+                .thenReturn(CompletableFuture.completedFuture(tweetSummaryDtos));
 
-        when(tweetMapper.mapEntityToDto(any(), anyLong(), anyLong(), anyLong(), any(ReplyDto.class))).thenReturn(new TweetDto());
+        when(tweetMapper.mapEntityToDto(any(), anyLong(), anyLong(), anyLong(), any(ReplyDto.class)))
+                .thenReturn(new TweetDto());
 
         CompletableFuture<List<TweetDto>> result = tweetService.getUserFeed(userId, "AUTH_TOKEN");
 
@@ -129,10 +131,12 @@ public class TweetServiceTest {
         UUID userId = UUID.randomUUID();
         List<UUID> followedIdsFromCache = Arrays.asList(UUID.randomUUID(), UUID.randomUUID());
 
-        when(interactionClient.getFollowedIds(eq(userId))).thenReturn(CompletableFuture.failedFuture(new RuntimeException("Service error")));
+        when(interactionClient.getFollowedIds(eq(userId)))
+                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("Service error")));
 
         String redisCacheKey = "followed_cache::" + userId;
-        when(valueOperations.get(redisCacheKey)).thenReturn("[\"" + followedIdsFromCache.get(0) + "\", \"" + followedIdsFromCache.get(1) + "\"]");
+        when(valueOperations.get(redisCacheKey))
+                .thenReturn("[\"" + followedIdsFromCache.get(0) + "\", \"" + followedIdsFromCache.get(1) + "\"]");
         when(objectMapper.readValue(anyString(), any(TypeReference.class))).thenReturn(followedIdsFromCache);
 
         TweetEntity tweetEntity1 = new TweetEntity();
@@ -161,8 +165,10 @@ public class TweetServiceTest {
         tweetSummary2.setTopReply(replyDto);
 
         List<TweetSummaryDto> tweetSummaryDtos = Arrays.asList(tweetSummary1, tweetSummary2);
-        when(interactionClient.getTweetSummaries(anyList(), eq("AUTH_TOKEN"))).thenReturn(CompletableFuture.completedFuture(tweetSummaryDtos));
-        when(tweetMapper.mapEntityToDto(any(), anyLong(), anyLong(), anyLong(), any(ReplyDto.class))).thenReturn(new TweetDto());
+        when(interactionClient.getTweetSummaries(anyList(), eq("AUTH_TOKEN")))
+                .thenReturn(CompletableFuture.completedFuture(tweetSummaryDtos));
+        when(tweetMapper.mapEntityToDto(any(), anyLong(), anyLong(), anyLong(), any(ReplyDto.class)))
+                .thenReturn(new TweetDto());
 
         CompletableFuture<List<TweetDto>> result = tweetService.getUserFeed(userId, "AUTH_TOKEN");
 
@@ -205,9 +211,11 @@ public class TweetServiceTest {
         tweetSummary2.setTopReply(replyDto);
 
         List<TweetSummaryDto> tweetSummaryDtos = Arrays.asList(tweetSummary1, tweetSummary2);
-        when(interactionClient.getTweetSummaries(anyList(), eq("AUTH_TOKEN"))).thenReturn(CompletableFuture.completedFuture(tweetSummaryDtos));
+        when(interactionClient.getTweetSummaries(anyList(), eq("AUTH_TOKEN")))
+                .thenReturn(CompletableFuture.completedFuture(tweetSummaryDtos));
 
-        when(tweetMapper.mapEntityToDto(any(), anyLong(), anyLong(), anyLong(), any(ReplyDto.class))).thenReturn(new TweetDto());
+        when(tweetMapper.mapEntityToDto(any(), anyLong(), anyLong(), anyLong(), any(ReplyDto.class)))
+                .thenReturn(new TweetDto());
 
         CompletableFuture<List<TweetDto>> result = tweetService.getUserTweets(userId, "AUTH_TOKEN");
 
@@ -231,13 +239,18 @@ public class TweetServiceTest {
         tweetEntity.setUserId(userId);
         when(tweetRepository.findById(tweetId)).thenReturn(Optional.of(tweetEntity));
 
-        when(interactionClient.getLikesCount(eq(tweetEntity.getId()), any())).thenReturn(CompletableFuture.completedFuture(0L));
-        when(interactionClient.getRepliesCount(eq(tweetEntity.getId()), any())).thenReturn(CompletableFuture.completedFuture(0L));
-        when(interactionClient.getRetweetsCount(eq(tweetEntity.getId()), any())).thenReturn(CompletableFuture.completedFuture(0L));
-        when(interactionClient.getRepliesForTweet(eq(tweetEntity.getId()), any())).thenReturn(CompletableFuture.completedFuture(List.of(replyDto)));
+        when(interactionClient.getLikesCount(eq(tweetEntity.getId()), any()))
+                .thenReturn(CompletableFuture.completedFuture(0L));
+        when(interactionClient.getRepliesCount(eq(tweetEntity.getId()), any()))
+                .thenReturn(CompletableFuture.completedFuture(0L));
+        when(interactionClient.getRetweetsCount(eq(tweetEntity.getId()), any()))
+                .thenReturn(CompletableFuture.completedFuture(0L));
+        when(interactionClient.getRepliesForTweet(eq(tweetEntity.getId()), any()))
+                .thenReturn(CompletableFuture.completedFuture(List.of(replyDto)));
 
         TweetDto tweetDto = new TweetDto();
-        when(tweetMapper.mapEntityToDto(any(TweetEntity.class), any(), any(), any(), any(List.class))).thenReturn(tweetDto);
+        when(tweetMapper.mapEntityToDto(any(TweetEntity.class), any(), any(), any(), any(List.class)))
+                .thenReturn(tweetDto);
 
         CompletableFuture<TweetDto> result = tweetService.getTweet(tweetId, "AUTH_TOKEN");
 
@@ -280,7 +293,7 @@ public class TweetServiceTest {
         tweetEntity.setId(tweetId);
         tweetEntity.setUserId(userId);
 
-        when(tweetRepository.findByIdAndUserId(tweetId, userId)).thenReturn(Optional.of(tweetEntity));
+        when(tweetRepository.findById(tweetId)).thenReturn(Optional.of(tweetEntity));
         when(tweetRepository.save(any())).thenReturn(tweetEntity);
 
         doNothing().when(mentionService).handleTweetCreationMentions(request);
@@ -327,7 +340,7 @@ public class TweetServiceTest {
 
         List<TweetEntity> tweetEntities = new ArrayList<>();
         when(tweetRepository.findBySimilarity(searchTerm))
-            .thenReturn(new ArrayList<>(tweetEntities));
+                .thenReturn(new ArrayList<>(tweetEntities));
 
         when(tweetMapper.mapEntityToDto(any(), any())).thenReturn(new TweetDto());
         when(userService.getUserSummary(any())).thenReturn(new UserDto());
@@ -344,7 +357,7 @@ public class TweetServiceTest {
 
         List<TweetEntity> tweetEntities = new ArrayList<>();
         when(tweetRepository.findByHashtag(searchTerm))
-            .thenReturn(new ArrayList<>(tweetEntities));
+                .thenReturn(new ArrayList<>(tweetEntities));
 
         when(tweetMapper.mapEntityToDto(any(), any())).thenReturn(new TweetDto());
 

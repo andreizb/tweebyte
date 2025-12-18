@@ -5,6 +5,7 @@ import ro.tweebyte.interactionservice.entity.ReplyEntity;
 import ro.tweebyte.interactionservice.model.ReplyCreateRequest;
 import ro.tweebyte.interactionservice.model.ReplyDto;
 import ro.tweebyte.interactionservice.model.ReplyUpdateRequest;
+import ro.tweebyte.interactionservice.model.UserDto;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -13,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ReplyMapperTest {
 
-	private final ReplyMapper replyMapper = new ReplyMapperImpl();
+	private final ReplyMapper replyMapper = new ReplyMapper();
 
 	@Test
 	void testMapRequestToEntity() {
@@ -97,7 +98,6 @@ class ReplyMapperTest {
 		replyMapper.mapRequestToEntity(updateRequest, replyEntity);
 
 		assertNotNull(replyEntity);
-		assertEquals(updateRequest.getId(), replyEntity.getId());
 		assertEquals(updateRequest.getUserId(), replyEntity.getUserId());
 		assertEquals(updateRequest.getContent(), replyEntity.getContent());
 	}

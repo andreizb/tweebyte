@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class RetweetMapperTest {
 
-	private final RetweetMapper mapper = new RetweetMapperImpl();
+	private final RetweetMapper mapper = org.mapstruct.factory.Mappers.getMapper(RetweetMapper.class);
 
 	@Test
 	void mapRequestToEntity_ShouldMapCorrectly() {
@@ -43,10 +43,10 @@ class RetweetMapperTest {
 		LocalDateTime createdAt = LocalDateTime.now();
 
 		RetweetEntity retweetEntity = RetweetEntity.builder()
-			.id(id)
-			.content(content)
-			.createdAt(createdAt)
-			.build();
+				.id(id)
+				.content(content)
+				.createdAt(createdAt)
+				.build();
 
 		RetweetDto retweetDto = mapper.mapEntityToDto(retweetEntity);
 
@@ -65,10 +65,10 @@ class RetweetMapperTest {
 		userDto.setId(UUID.randomUUID());
 
 		RetweetEntity retweetEntity = RetweetEntity.builder()
-			.id(id)
-			.content(content)
-			.createdAt(createdAt)
-			.build();
+				.id(id)
+				.content(content)
+				.createdAt(createdAt)
+				.build();
 
 		RetweetDto retweetDto = mapper.mapEntityToDto(retweetEntity, userDto);
 
@@ -90,10 +90,10 @@ class RetweetMapperTest {
 		tweetDto.setId(UUID.randomUUID());
 
 		RetweetEntity retweetEntity = RetweetEntity.builder()
-			.id(id)
-			.content(content)
-			.createdAt(createdAt)
-			.build();
+				.id(id)
+				.content(content)
+				.createdAt(createdAt)
+				.build();
 
 		RetweetDto retweetDto = mapper.mapEntityToDto(retweetEntity, userDto, tweetDto);
 

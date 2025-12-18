@@ -1,37 +1,86 @@
 version: '3.9'
 services:
-    user_service_db:
-        image: postgres:latest
-        container_name: user_service_db
-        ports:
-              - 54321:5432
-        environment:
-            POSTGRES_USER: postgres
-            POSTGRES_PASSWORD: postgres
-            POSTGRES_DB: user_service_db
-    tweet_service_db:
-        image: postgres:latest
-        container_name: tweet_service_db
-        ports:
-              - 54322:5432
-        environment:
-            POSTGRES_USER: postgres
-            POSTGRES_PASSWORD: postgres
-            POSTGRES_DB: tweet_service_db
-    interaction_service_db:
-        image: postgres:latest
-        container_name: interaction_service_db
-        ports:
-              - 54323:5432
-        environment:
-            POSTGRES_USER: postgres
-            POSTGRES_PASSWORD: postgres
-            POSTGRES_DB: interaction_service_db
-    redis:
-        image: redis:latest
-        container_name: redis
-        ports:
-              - 63790:6379
+  user_service_db:
+    image: postgres:latest
+    container_name: user_service_db
+    ports: ["54321:5432"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: user_service_db
+
+  tweet_service_db:
+    image: postgres:latest
+    container_name: tweet_service_db
+    ports: ["54322:5432"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tweet_service_db
+
+  interaction_service_db:
+    image: postgres:latest
+    container_name: interaction_service_db
+    ports: ["54323:5432"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: interaction_service_db
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports: ["63790:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "localhost", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    container_name: toxiproxy
+    ports:
+      - "8474:8474"
+      - "26379:26379"
+    command: ["-host=0.0.0.0", "-port=8474"]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  toxiproxy_init:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    depends_on:
+      toxiproxy:
+        condition: service_started
+    entrypoint: ["/bin/sh","-lc"]
+    command: |
+      '
+      set -e
+      apk add --no-cache curl jq >/dev/null
+      until curl -s http://toxiproxy:8474/proxies >/dev/null; do sleep 0.3; done
+
+      curl -s -X POST http://toxiproxy:8474/proxies \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"redis_proxy\",\"listen\":\"0.0.0.0:26379\",\"upstream\":\"redis:6379\",\"enabled\":true}" \
+        || true
+
+      for t in $(curl -s http://toxiproxy:8474/proxies/redis_proxy | jq -r ".toxics[].name"); do
+        curl -s -X DELETE http://toxiproxy:8474/proxies/redis_proxy/toxics/$t >/dev/null || true
+      done
+
+      curl -s -X POST http://toxiproxy:8474/proxies/redis_proxy/toxics \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"latency_down\",\"type\":\"latency\",\"stream\":\"downstream\",\"attributes\":{\"latency\":3,\"jitter\":0.6}}"
+
+      curl -s -X POST http://toxiproxy:8474/proxies/redis_proxy/toxics \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"latency_up\",\"type\":\"latency\",\"stream\":\"upstream\",\"attributes\":{\"latency\":3,\"jitter\":0.6}}"
+
+      echo "Redis proxy ready with ~7ms RTT (+/- jitter)"
+      '
+    restart: "no"
+    
  #    kafka:
  #        image: bitnami/kafka:latest
  #        container_name: kafka

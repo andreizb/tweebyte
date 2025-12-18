@@ -23,16 +23,16 @@ class UserServiceTest {
 	private UserClient userClient;
 
 	@Mock
-	private ReactiveRedisTemplate<String, Object> redisTemplate;
+	private ReactiveRedisTemplate<String, byte[]> redisTemplate;
 
 	@Mock
-	private ReactiveValueOperations<String, Object> valueOperations;
+	private ReactiveValueOperations<String, byte[]> valueOperations;
 
 	@InjectMocks
 	private UserService userService;
 
 	private final UUID userId = UUID.randomUUID();
-	private final String redisKey = "users:" + userId;
+	private final String redisKey = "users::" + userId;
 
 	private UserDto mockUser;
 
@@ -49,17 +49,17 @@ class UserServiceTest {
 	void getUserSummary_cacheMiss() {
 		when(valueOperations.get(redisKey)).thenReturn(Mono.empty());
 		when(userClient.getUserSummary(userId)).thenReturn(Mono.just(mockUser));
-		when(valueOperations.set(redisKey, mockUser)).thenReturn(Mono.empty());
+		when(valueOperations.set(eq(redisKey), any(byte[].class))).thenReturn(Mono.just(true));
 
 		Mono<UserDto> result = userService.getUserSummary(userId);
 
 		StepVerifier.create(result)
-			.expectNext(mockUser)
-			.verifyComplete();
+				.expectNext(mockUser)
+				.verifyComplete();
 
 		verify(valueOperations).get(redisKey);
 		verify(userClient).getUserSummary(userId);
-		verify(valueOperations).set(redisKey, mockUser);
+		verify(valueOperations).set(eq(redisKey), any(byte[].class));
 	}
 
 	@Test
@@ -70,11 +70,11 @@ class UserServiceTest {
 		Mono<UserDto> result = userService.getUserSummary(userId);
 
 		StepVerifier.create(result)
-			.expectError(RuntimeException.class)
-			.verify();
+				.expectError(RuntimeException.class)
+				.verify();
 
 		verify(valueOperations).get(redisKey);
 		verify(userClient).getUserSummary(userId);
-		verify(valueOperations, never()).set(anyString(), any());
+		verify(valueOperations, never()).set(anyString(), any(byte[].class));
 	}
 }

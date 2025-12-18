@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class LikeMapperTest {
 
-	private final LikeMapper mapper = new LikeMapperImpl();
+	private final LikeMapper mapper = org.mapstruct.factory.Mappers.getMapper(LikeMapper.class);
 
 	@Test
 	void mapRequestToEntity_ShouldMapCorrectly() {
@@ -39,9 +39,9 @@ class LikeMapperTest {
 		LocalDateTime createdAt = LocalDateTime.now();
 
 		LikeEntity likeEntity = LikeEntity.builder()
-			.id(id)
-			.createdAt(createdAt)
-			.build();
+				.id(id)
+				.createdAt(createdAt)
+				.build();
 
 		LikeDto likeDto = mapper.mapEntityToDto(likeEntity);
 
@@ -58,9 +58,9 @@ class LikeMapperTest {
 		userDto.setId(UUID.randomUUID());
 
 		LikeEntity likeEntity = LikeEntity.builder()
-			.id(id)
-			.createdAt(createdAt)
-			.build();
+				.id(id)
+				.createdAt(createdAt)
+				.build();
 
 		LikeDto likeDto = mapper.mapToDto(likeEntity, userDto);
 
@@ -78,9 +78,9 @@ class LikeMapperTest {
 		tweetDto.setId(UUID.randomUUID());
 
 		LikeEntity likeEntity = LikeEntity.builder()
-			.id(id)
-			.createdAt(createdAt)
-			.build();
+				.id(id)
+				.createdAt(createdAt)
+				.build();
 
 		LikeDto likeDto = mapper.mapToDto(likeEntity, tweetDto);
 

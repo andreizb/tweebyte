@@ -1,5 +1,6 @@
 package ro.tweebyte.interactionservice.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
@@ -15,36 +16,82 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TweetService {
 
-    private static final String TWEET_SUMMARY_KEY_PREFIX = "tweets:";
-    private static final String USER_TWEETS_SUMMARY_KEY_PREFIX = "user_tweets:";
-    private static final String POPULAR_HASHTAGS_KEY = "popular_hashtags:";
+        private static final String TWEET_SUMMARY_KEY_PREFIX = "tweets:";
+        private static final String USER_TWEETS_SUMMARY_KEY_PREFIX = "user_tweets:";
+        private static final String POPULAR_HASHTAGS_KEY = "popular_hashtags:";
 
-    private final TweetClient tweetClient;
-    private final ReactiveRedisTemplate<String, Object> redisTemplate;
+        private final TweetClient tweetClient;
+        private final ReactiveRedisTemplate<String, byte[]> redisTemplate;
+        private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public Mono<TweetDto> getTweetSummary(UUID tweetId) {
-        String key = TWEET_SUMMARY_KEY_PREFIX + tweetId;
-        return redisTemplate.opsForValue().get(key)
-                .cast(TweetDto.class)
-                .switchIfEmpty(tweetClient.getTweetSummary(tweetId)
-                        .doOnNext(tweetDto -> redisTemplate.opsForValue().set(key, tweetDto)));
-    }
+        public Mono<TweetDto> getTweetSummary(UUID tweetId) {
+                String key = TWEET_SUMMARY_KEY_PREFIX + tweetId;
+                return redisTemplate.opsForValue().get(key)
+                                .flatMap(bytes -> {
+                                        try {
+                                                return Mono.just(objectMapper.readValue(bytes, TweetDto.class));
+                                        } catch (Exception e) {
+                                                return Mono.error(e);
+                                        }
+                                })
+                                .switchIfEmpty(tweetClient.getTweetSummary(tweetId)
+                                                .flatMap(tweetDto -> {
+                                                        try {
+                                                                return redisTemplate.opsForValue().set(key,
+                                                                                objectMapper.writeValueAsBytes(
+                                                                                                tweetDto))
+                                                                                .thenReturn(tweetDto);
+                                                        } catch (Exception e) {
+                                                                return Mono.error(e);
+                                                        }
+                                                }));
+        }
 
-    public Flux<TweetDto> getUserTweetsSummary(UUID userId) {
-        String key = USER_TWEETS_SUMMARY_KEY_PREFIX + userId;
-        return redisTemplate.opsForList().range(key, 0, -1)
-                .cast(TweetDto.class)
-                .switchIfEmpty(tweetClient.getUserTweetsSummary(userId)
-                        .doOnNext(tweetDto -> redisTemplate.opsForList().rightPush(key, tweetDto))
-                        .thenMany(redisTemplate.opsForList().range(key, 0, -1).cast(TweetDto.class)));
-    }
+        public Flux<TweetDto> getUserTweetsSummary(UUID userId) {
+                String key = USER_TWEETS_SUMMARY_KEY_PREFIX + userId;
+                return redisTemplate.opsForList().range(key, 0, -1)
+                                .flatMap(bytes -> {
+                                        try {
+                                                return Mono.just(objectMapper.readValue(bytes, TweetDto.class));
+                                        } catch (Exception e) {
+                                                return Mono.error(e);
+                                        }
+                                })
+                                .switchIfEmpty(tweetClient.getUserTweetsSummary(userId)
+                                                .flatMap(tweetDto -> {
+                                                        try {
+                                                                return redisTemplate.opsForList().rightPush(key,
+                                                                                objectMapper.writeValueAsBytes(
+                                                                                                tweetDto))
+                                                                                .thenReturn(tweetDto);
+                                                        } catch (Exception e) {
+                                                                return Mono.error(e);
+                                                        }
+                                                }));
+        }
 
-    public Flux<TweetDto.HashtagDto> getPopularHashtags() {
-        return redisTemplate.opsForList().range(POPULAR_HASHTAGS_KEY, 0, -1)
-                .cast(TweetDto.HashtagDto.class)
-                .switchIfEmpty(tweetClient.getPopularHashtags()
-                        .doOnNext(hashtagDto -> redisTemplate.opsForList().rightPush(POPULAR_HASHTAGS_KEY, hashtagDto))
-                        .thenMany(redisTemplate.opsForList().range(POPULAR_HASHTAGS_KEY, 0, -1).cast(TweetDto.HashtagDto.class)));
-    }
+        public Flux<TweetDto.HashtagDto> getPopularHashtags() {
+                return redisTemplate.opsForList().range(POPULAR_HASHTAGS_KEY, 0, -1)
+                                .flatMap(bytes -> {
+                                        try {
+                                                return Mono.just(objectMapper.readValue(bytes,
+                                                                TweetDto.HashtagDto.class));
+                                        } catch (Exception e) {
+                                                return Mono.error(e);
+                                        }
+                                })
+                                .switchIfEmpty(tweetClient.getPopularHashtags()
+                                                .flatMap(hashtagDto -> {
+                                                        try {
+                                                                return redisTemplate.opsForList().rightPush(
+                                                                                POPULAR_HASHTAGS_KEY,
+                                                                                objectMapper.writeValueAsBytes(
+                                                                                                hashtagDto))
+                                                                                .thenReturn(hashtagDto);
+                                                        } catch (Exception e) {
+                                                                return Mono.error(e);
+                                                        }
+                                                }));
+        }
 
 }

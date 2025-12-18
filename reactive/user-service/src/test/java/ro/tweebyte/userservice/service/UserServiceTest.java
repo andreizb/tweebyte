@@ -5,8 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
+import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -25,133 +24,135 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-@ExtendWith(SpringExtension.class)
-@SpringBootTest
+@ExtendWith(MockitoExtension.class)
 public class UserServiceTest {
 
-    @InjectMocks
-    private UserService userService;
+        @InjectMocks
+        private UserService userService;
 
-    @Mock
-    private UserRepository userRepository;
+        @Mock
+        private UserRepository userRepository;
 
-    @Mock
-    private InteractionClient interactionClient;
+        @Mock
+        private InteractionClient interactionClient;
 
-    @Mock
-    private TweetClient tweetClient;
+        @Mock
+        private TweetClient tweetClient;
 
-    @Mock
-    private UserMapper userMapper;
+        @Mock
+        private UserMapper userMapper;
 
-    private final UUID userId = UUID.randomUUID();
-    private UserEntity userEntity = new UserEntity();
-    private UserDto userDto = new UserDto();
-    private TweetDto tweetDto = new TweetDto();
+        private final UUID userId = UUID.randomUUID();
+        private UserEntity userEntity = new UserEntity();
+        private UserDto userDto = new UserDto();
+        private TweetDto tweetDto = new TweetDto();
 
-    @BeforeEach
-    public void setUp() {
-        userEntity.setId(userId);
-        userEntity.setEmail("test@example.com");
-        userEntity.setPassword("password");
+        @BeforeEach
+        public void setUp() {
+                userEntity.setId(userId);
+                userEntity.setEmail("test@example.com");
+                userEntity.setPassword("password");
 
-        given(userRepository.findById(eq(userId))).willReturn(Mono.just(userEntity));
-        given(userRepository.findById(eq(UUID.randomUUID()))).willReturn(Mono.empty());
-        given(userRepository.findByUserName(any(String.class))).willReturn(Mono.just(userEntity));
-        given(userRepository.searchUsers(any(String.class))).willReturn(Flux.just(userEntity));
-        given(interactionClient.getFollowingCount(eq(userId), any())).willReturn(Mono.just(10L));
-        given(interactionClient.getFollowersCount(eq(userId), any())).willReturn(Mono.just(20L));
-        given(tweetClient.getUserTweets(eq(userId), any())).willReturn(Flux.just(tweetDto));
-        given(userMapper.mapToProfileDto(eq(userEntity), any(Long.class), any(Long.class), any(List.class))).willReturn(userDto);
-        given(userMapper.mapToSummaryDto(any(UserEntity.class))).willReturn(userDto);
-    }
+                lenient().when(userRepository.findById(eq(userId))).thenReturn(Mono.just(userEntity));
+                lenient().when(userRepository.findById(eq(UUID.randomUUID()))).thenReturn(Mono.empty());
+                lenient().when(userRepository.findByUserName(any(String.class))).thenReturn(Mono.just(userEntity));
+                lenient().when(userRepository.searchUsers(any(String.class))).thenReturn(Flux.just(userEntity));
+                lenient().when(interactionClient.getFollowingCount(eq(userId), any())).thenReturn(Mono.just(10L));
+                lenient().when(interactionClient.getFollowersCount(eq(userId), any())).thenReturn(Mono.just(20L));
+                lenient().when(tweetClient.getUserTweets(eq(userId), any())).thenReturn(Flux.just(tweetDto));
+                lenient().when(userMapper.mapToProfileDto(eq(userEntity), any(Long.class), any(Long.class),
+                                any(List.class)))
+                                .thenReturn(userDto);
+                lenient().when(userMapper.mapToSummaryDto(any(UserEntity.class))).thenReturn(userDto);
+        }
 
-    @Test
-    public void getUserProfileTest() {
-        UUID userId = UUID.randomUUID();
-        String authToken = "authToken";
+        @Test
+        public void getUserProfileTest() {
+                UUID userId = UUID.randomUUID();
+                String authToken = "authToken";
 
-        UserEntity mockUserEntity = new UserEntity();
-        mockUserEntity.setId(userId);
-        mockUserEntity.setUserName("testUser");
+                UserEntity mockUserEntity = new UserEntity();
+                mockUserEntity.setId(userId);
+                mockUserEntity.setUserName("testUser");
 
-        Long followingCount = 10L;
-        Long followersCount = 20L;
+                Long followingCount = 10L;
+                Long followersCount = 20L;
 
-        TweetDto tweet1 = new TweetDto();
-        tweet1.setId(UUID.randomUUID());
-        tweet1.setContent("Tweet 1");
+                TweetDto tweet1 = new TweetDto();
+                tweet1.setId(UUID.randomUUID());
+                tweet1.setContent("Tweet 1");
 
-        TweetDto tweet2 = new TweetDto();
-        tweet2.setId(UUID.randomUUID());
-        tweet2.setContent("Tweet 2");
+                TweetDto tweet2 = new TweetDto();
+                tweet2.setId(UUID.randomUUID());
+                tweet2.setContent("Tweet 2");
 
-        List<TweetDto> tweetList = List.of(tweet1, tweet2);
+                List<TweetDto> tweetList = List.of(tweet1, tweet2);
 
-        UserDto expectedUserDto = new UserDto();
-        expectedUserDto.setId(userId);
-        expectedUserDto.setUserName("testUser");
-        expectedUserDto.setFollowing(followingCount);
-        expectedUserDto.setFollowers(followersCount);
-        expectedUserDto.setTweets(tweetList);
+                UserDto expectedUserDto = new UserDto();
+                expectedUserDto.setId(userId);
+                expectedUserDto.setUserName("testUser");
+                expectedUserDto.setFollowing(followingCount);
+                expectedUserDto.setFollowers(followersCount);
+                expectedUserDto.setTweets(tweetList);
 
-        when(userRepository.findById(userId))
-                .thenReturn(Mono.just(mockUserEntity));
+                when(userRepository.findById(userId))
+                                .thenReturn(Mono.just(mockUserEntity));
 
-        when(interactionClient.getFollowingCount(userId, authToken))
-                .thenReturn(Mono.just(followingCount));
+                when(interactionClient.getFollowingCount(userId, authToken))
+                                .thenReturn(Mono.just(followingCount));
 
-        when(interactionClient.getFollowersCount(userId, authToken))
-                .thenReturn(Mono.just(followersCount));
+                when(interactionClient.getFollowersCount(userId, authToken))
+                                .thenReturn(Mono.just(followersCount));
 
-        when(tweetClient.getUserTweets(userId, authToken))
-                .thenReturn(Flux.fromIterable(tweetList));
+                when(tweetClient.getUserTweets(userId, authToken))
+                                .thenReturn(Flux.fromIterable(tweetList));
 
-        when(userMapper.mapToProfileDto(mockUserEntity, followingCount, followersCount, tweetList))
-                .thenReturn(expectedUserDto);
+                when(userMapper.mapToProfileDto(mockUserEntity, followingCount, followersCount, tweetList))
+                                .thenReturn(expectedUserDto);
 
-        StepVerifier.create(userService.getUserProfile(userId, authToken))
-                .expectNext(expectedUserDto)
-                .verifyComplete();
+                StepVerifier.create(userService.getUserProfile(userId, authToken))
+                                .expectNext(expectedUserDto)
+                                .verifyComplete();
 
-        verify(userRepository).findById(userId);
-        verify(interactionClient).getFollowingCount(userId, authToken);
-        verify(interactionClient).getFollowersCount(userId, authToken);
-        verify(tweetClient).getUserTweets(userId, authToken);
-        verify(userMapper).mapToProfileDto(mockUserEntity, followingCount, followersCount, tweetList);
-    }
+                verify(userRepository).findById(userId);
+                verify(interactionClient).getFollowingCount(userId, authToken);
+                verify(interactionClient).getFollowersCount(userId, authToken);
+                verify(tweetClient).getUserTweets(userId, authToken);
+                verify(userMapper).mapToProfileDto(mockUserEntity, followingCount, followersCount, tweetList);
+        }
 
-    @Test
-    public void getUserSummaryTest() {
-        StepVerifier.create(userService.getUserSummary(userId))
-            .expectNext(userDto)
-            .verifyComplete();
-    }
+        @Test
+        public void getUserSummaryTest() {
+                StepVerifier.create(userService.getUserSummary(userId))
+                                .expectNext(userDto)
+                                .verifyComplete();
+        }
 
-    @Test
-    public void getUserSummaryByUserNameTest() {
-        StepVerifier.create(userService.getUserSummaryByUserName("username"))
-            .expectNext(userDto)
-            .verifyComplete();
-    }
+        @Test
+        public void getUserSummaryByUserNameTest() {
+                StepVerifier.create(userService.getUserSummaryByUserName("username"))
+                                .expectNext(userDto)
+                                .verifyComplete();
+        }
 
-    @Test
-    public void searchUserTest() {
-        StepVerifier.create(userService.searchUser("searchTerm"))
-            .expectNext(userDto)
-            .verifyComplete();
-    }
+        @Test
+        public void searchUserTest() {
+                StepVerifier.create(userService.searchUser("searchTerm"))
+                                .expectNext(userDto)
+                                .verifyComplete();
+        }
 
-    @Test
-    public void updateUserTest() {
-        given(userRepository.save(any(UserEntity.class))).willReturn(Mono.just(userEntity));
-        UserUpdateRequest request = new UserUpdateRequest();
+        @Test
+        public void updateUserTest() {
+                given(userRepository.save(any(UserEntity.class))).willReturn(Mono.just(userEntity));
+                UserUpdateRequest request = new UserUpdateRequest();
 
-        StepVerifier.create(userService.updateUser(userId, request))
-            .verifyComplete();
-    }
+                StepVerifier.create(userService.updateUser(userId, request))
+                                .verifyComplete();
+        }
 
 }

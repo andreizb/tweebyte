@@ -2,7 +2,6 @@ package ro.tweebyte.tweetservice.mapper;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mapstruct.factory.Mappers;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import ro.tweebyte.tweetservice.entity.HashtagEntity;
@@ -31,14 +30,14 @@ class TweetMapperTest {
     @BeforeEach
     void setUp() throws Exception {
         MockitoAnnotations.openMocks(this);
-        tweetMapper = new TweetMapperImpl();
+        tweetMapper = new TweetMapper();
 
         injectDependencies(tweetMapper, "mentionMapper", mentionMapper);
         injectDependencies(tweetMapper, "hashtagMapper", hashtagMapper);
     }
 
     private void injectDependencies(Object target, String fieldName, Object dependency) throws Exception {
-        Field field = TweetMapper.class.getDeclaredField(fieldName); // Access fields in the abstract class
+        Field field = TweetMapper.class.getDeclaredField(fieldName); // Access fields in the concrete class
         field.setAccessible(true);
         field.set(target, dependency);
     }
@@ -171,7 +170,8 @@ class TweetMapperTest {
         topReply.setContent("Top Reply");
 
         HashtagEntity hashtag = new HashtagEntity(UUID.randomUUID(), "#example", true);
-        MentionEntity mention = new MentionEntity(UUID.randomUUID(), UUID.randomUUID(), "@user", tweetEntity.getId(), true);
+        MentionEntity mention = new MentionEntity(UUID.randomUUID(), UUID.randomUUID(), "@user", tweetEntity.getId(),
+                true);
 
         List<HashtagEntity> hashtags = Collections.singletonList(hashtag);
         List<MentionEntity> mentions = Collections.singletonList(mention);
@@ -186,7 +186,8 @@ class TweetMapperTest {
         when(mentionMapper.mapEntityToDto(mention)).thenReturn(mentionDto);
 
         // When
-        TweetDto tweetDto = tweetMapper.mapEntityToDto(tweetEntity, likesCount, repliesCount, retweetsCount, topReply, hashtags, mentions);
+        TweetDto tweetDto = tweetMapper.mapEntityToDto(tweetEntity, likesCount, repliesCount, retweetsCount, topReply,
+                hashtags, mentions);
 
         // Assert
         assertNotNull(tweetDto);
@@ -220,7 +221,8 @@ class TweetMapperTest {
         topReply.setContent("Top Reply");
 
         HashtagEntity hashtag = new HashtagEntity(UUID.randomUUID(), "#example", true);
-        MentionEntity mention = new MentionEntity(UUID.randomUUID(), UUID.randomUUID(), "@user", tweetEntity.getId(), true);
+        MentionEntity mention = new MentionEntity(UUID.randomUUID(), UUID.randomUUID(), "@user", tweetEntity.getId(),
+                true);
 
         List<HashtagEntity> hashtags = Collections.singletonList(hashtag);
         List<MentionEntity> mentions = Collections.singletonList(mention);
@@ -235,7 +237,8 @@ class TweetMapperTest {
         when(mentionMapper.mapEntityToDto(any(MentionEntity.class))).thenReturn(mentionDto);
 
         // When
-        TweetDto tweetDto = tweetMapper.mapEntityToDto(tweetEntity, likesCount, repliesCount, retweetsCount, topReply, hashtags, mentions);
+        TweetDto tweetDto = tweetMapper.mapEntityToDto(tweetEntity, likesCount, repliesCount, retweetsCount, topReply,
+                hashtags, mentions);
 
         // Assertions
         assertNotNull(tweetDto);
@@ -248,11 +251,13 @@ class TweetMapperTest {
 
         assertNotNull(tweetDto.getHashtags());
         assertEquals(1, tweetDto.getHashtags().size());
-        assertEquals("#example", tweetDto.getHashtags().iterator().next().getText()); // Ensures the mapped hashtag is correct
+        assertEquals("#example", tweetDto.getHashtags().iterator().next().getText()); // Ensures the mapped hashtag is
+                                                                                      // correct
 
         assertNotNull(tweetDto.getMentions());
         assertEquals(1, tweetDto.getMentions().size());
-        assertEquals("@user", tweetDto.getMentions().iterator().next().getText()); // Ensures the mapped mention is correct
+        assertEquals("@user", tweetDto.getMentions().iterator().next().getText()); // Ensures the mapped mention is
+                                                                                   // correct
     }
 
     @Test
@@ -273,7 +278,8 @@ class TweetMapperTest {
         reply2.setContent("Second Reply");
         List<ReplyDto> replies = Arrays.asList(reply1, reply2);
 
-        MentionEntity mention = new MentionEntity(UUID.randomUUID(), UUID.randomUUID(), "@mentionedUser", tweetEntity.getId(), true);
+        MentionEntity mention = new MentionEntity(UUID.randomUUID(), UUID.randomUUID(), "@mentionedUser",
+                tweetEntity.getId(), true);
         HashtagEntity hashtag = new HashtagEntity(UUID.randomUUID(), "#hashtag", true);
 
         List<MentionEntity> mentions = Collections.singletonList(mention);
@@ -289,7 +295,8 @@ class TweetMapperTest {
         when(hashtagMapper.mapEntityToDto(any(HashtagEntity.class))).thenReturn(hashtagDto);
 
         // When
-        TweetDto tweetDto = tweetMapper.mapEntityToDto(tweetEntity, likesCount, repliesCount, retweetsCount, replies, mentions, hashtags);
+        TweetDto tweetDto = tweetMapper.mapEntityToDto(tweetEntity, likesCount, repliesCount, retweetsCount, replies,
+                mentions, hashtags);
 
         // Assertions
         assertNotNull(tweetDto);

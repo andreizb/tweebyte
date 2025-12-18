@@ -1,9 +1,12 @@
 package ro.tweebyte.interactionservice.model;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.fasterxml.jackson.datatype.jsr310.deser.LocalDateTimeDeserializer;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -36,7 +39,7 @@ public class FollowDto implements Serializable {
     private UUID followedId;
 
     @JsonProperty(value = "created_at")
-    @JsonDeserialize(using = LocalDateTimeDeserializer.class)
+    @JsonFormat(shape = JsonFormat.Shape.STRING)
     private LocalDateTime createdAt;
 
     @JsonProperty(value = "status")

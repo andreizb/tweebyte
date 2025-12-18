@@ -2,9 +2,7 @@ package ro.tweebyte.interactionservice.controller;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import ro.tweebyte.interactionservice.model.CustomUserDetails;
 import ro.tweebyte.interactionservice.model.LikeDto;
 import ro.tweebyte.interactionservice.service.LikeService;
 
@@ -34,30 +32,30 @@ public class LikeController {
         return likeService.getTweetLikesCount(tweetId);
     }
 
-    @PostMapping("/tweets/{tweetId}")
-    public CompletableFuture<LikeDto> likeTweet(@AuthenticationPrincipal CustomUserDetails userDetails,
-                                                @PathVariable(value = "tweetId") UUID tweetId) {
-        return likeService.likeTweet(userDetails.getUserId(), tweetId);
+    @PostMapping("/{userId}/tweets/{tweetId}")
+    public CompletableFuture<LikeDto> likeTweet(@PathVariable(value = "userId") UUID userId,
+            @PathVariable(value = "tweetId") UUID tweetId) {
+        return likeService.likeTweet(userId, tweetId);
     }
 
-    @DeleteMapping("/tweets/{tweetId}")
+    @DeleteMapping("/{userId}/tweets/{tweetId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public CompletableFuture<Void> unlikeTweet(@AuthenticationPrincipal CustomUserDetails userDetails,
-                                               @PathVariable(value = "tweetId") UUID tweetId) {
-        return likeService.unlikeTweet(userDetails.getUserId(), tweetId);
+    public CompletableFuture<Void> unlikeTweet(@PathVariable(value = "userId") UUID userId,
+            @PathVariable(value = "tweetId") UUID tweetId) {
+        return likeService.unlikeTweet(userId, tweetId);
     }
 
-    @PostMapping("/replies/{replyId}")
-    public CompletableFuture<LikeDto> likeReply(@AuthenticationPrincipal CustomUserDetails userDetails,
-                                                  @PathVariable(value = "replyId") UUID replyId) {
-        return likeService.likeReply(userDetails.getUserId(), replyId);
+    @PostMapping("/{userId}/replies/{replyId}")
+    public CompletableFuture<LikeDto> likeReply(@PathVariable(value = "userId") UUID userId,
+            @PathVariable(value = "replyId") UUID replyId) {
+        return likeService.likeReply(userId, replyId);
     }
 
-    @DeleteMapping("/replies/{replyId}")
+    @DeleteMapping("/{userId}/replies/{replyId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public CompletableFuture<Void> unlikeReply(@AuthenticationPrincipal CustomUserDetails userDetails,
-                                                 @PathVariable(value = "replyId") UUID replyId) {
-        return likeService.unlikeReply(userDetails.getUserId(), replyId);
+    public CompletableFuture<Void> unlikeReply(@PathVariable(value = "userId") UUID userId,
+            @PathVariable(value = "replyId") UUID replyId) {
+        return likeService.unlikeReply(userId, replyId);
     }
 
 }

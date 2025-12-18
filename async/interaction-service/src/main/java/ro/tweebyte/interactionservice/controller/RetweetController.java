@@ -1,9 +1,7 @@
 package ro.tweebyte.interactionservice.controller;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import ro.tweebyte.interactionservice.model.CustomUserDetails;
 import ro.tweebyte.interactionservice.model.RetweetCreateRequest;
 import ro.tweebyte.interactionservice.model.RetweetDto;
 import ro.tweebyte.interactionservice.model.RetweetUpdateRequest;
@@ -20,23 +18,23 @@ public class RetweetController {
 
     private final RetweetService retweetService;
 
-    @PostMapping
-    public CompletableFuture<RetweetDto> createRetweet(@AuthenticationPrincipal CustomUserDetails userDetails,
-                                                       @RequestBody RetweetCreateRequest request) {
-        return retweetService.createRetweet(request.setRetweeterId(userDetails.getUserId()));
+    @PostMapping("/{userId}")
+    public CompletableFuture<RetweetDto> createRetweet(@PathVariable(value = "userId") UUID userId,
+            @RequestBody RetweetCreateRequest request) {
+        return retweetService.createRetweet(request.setRetweeterId(userId));
     }
 
-    @PutMapping("/{retweetId}")
-    public CompletableFuture<Void> updateRetweet(@AuthenticationPrincipal CustomUserDetails userDetails,
-                                                 @PathVariable UUID retweetId,
-                                                 @RequestBody RetweetUpdateRequest request) {
-        return retweetService.updateRetweet(request.setId(retweetId).setRetweeterId(userDetails.getUserId()));
+    @PutMapping("/{userId}/{retweetId}")
+    public CompletableFuture<Void> updateRetweet(@PathVariable(value = "userId") UUID userId,
+            @PathVariable UUID retweetId,
+            @RequestBody RetweetUpdateRequest request) {
+        return retweetService.updateRetweet(request.setId(retweetId).setRetweeterId(userId));
     }
 
-    @DeleteMapping("/{retweetId}")
-    public CompletableFuture<Void> deleteRetweet(@AuthenticationPrincipal CustomUserDetails userDetails,
-                                                 @PathVariable UUID retweetId) {
-        return retweetService.deleteRetweet(retweetId, userDetails.getUserId());
+    @DeleteMapping("/{userId}/{retweetId}")
+    public CompletableFuture<Void> deleteRetweet(@PathVariable(value = "userId") UUID userId,
+            @PathVariable UUID retweetId) {
+        return retweetService.deleteRetweet(retweetId, userId);
     }
 
     @GetMapping("/user/{userId}")

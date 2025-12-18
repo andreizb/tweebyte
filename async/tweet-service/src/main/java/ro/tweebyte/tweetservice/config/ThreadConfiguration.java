@@ -3,7 +3,6 @@ package ro.tweebyte.tweetservice.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -17,9 +16,7 @@ public class ThreadConfiguration {
 
     @Bean(name = "executorService")
     public ExecutorService userExecutorService() {
-        return new DelegatingSecurityContextExecutorService(
-            enableCustomThreadPool ? Executors.newCachedThreadPool() : ForkJoinPool.commonPool()
-        );
+        return enableCustomThreadPool ? Executors.newCachedThreadPool() : ForkJoinPool.commonPool();
     }
 
 }

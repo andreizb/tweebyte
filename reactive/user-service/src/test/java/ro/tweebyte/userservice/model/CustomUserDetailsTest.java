@@ -12,7 +12,7 @@ class CustomUserDetailsTest {
     @Test
     void getUserId() {
         UUID userId = UUID.randomUUID();
-        CustomUserDetails userDetails = new CustomUserDetails(userId, "testUser", "testPassword", Collections.EMPTY_LIST);
+        CustomUserDetails userDetails = new CustomUserDetails(userId);
 
         assertEquals(userId, userDetails.getUserId());
     }

@@ -7,6 +7,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import ro.tweebyte.interactionservice.entity.FollowEntity;
 
+import java.util.List;
 import java.util.UUID;
 
 @Repository
@@ -17,7 +18,7 @@ public interface FollowRepository extends ReactiveCrudRepository<FollowEntity, U
 
     Flux<FollowEntity> findByStatus(String status);
 
-    Flux<FollowEntity> findByFollowerIdAndStatus(UUID userId, String status);
+    Flux<FollowEntity> findByFollowerIdAndStatus(UUID followerId, String status);
 
     Flux<FollowEntity> findByFollowedIdAndStatusOrderByCreatedAtDesc(UUID followedId, String status);
 

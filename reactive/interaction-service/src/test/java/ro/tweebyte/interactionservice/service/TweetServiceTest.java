@@ -19,11 +19,11 @@ import static org.mockito.Mockito.*;
 
 class TweetServiceTest {
 
-	private ReactiveRedisTemplate<String, Object> redisTemplate;
+	private ReactiveRedisTemplate<String, byte[]> redisTemplate;
 	private TweetClient tweetClient;
 	private TweetService tweetService;
-	private ReactiveValueOperations<String, Object> valueOperations;
-	private ReactiveListOperations<String, Object> listOperations;
+	private ReactiveValueOperations<String, byte[]> valueOperations;
+	private ReactiveListOperations<String, byte[]> listOperations;
 
 	@BeforeEach
 	void setUp() {
@@ -43,15 +43,15 @@ class TweetServiceTest {
 		TweetDto tweetDto = new TweetDto();
 		when(valueOperations.get(key)).thenReturn(Mono.empty());
 		when(tweetClient.getTweetSummary(tweetId)).thenReturn(Mono.just(tweetDto));
-		when(valueOperations.set(eq(key), any(TweetDto.class))).thenReturn(Mono.just(true));
+		when(valueOperations.set(eq(key), any(byte[].class))).thenReturn(Mono.just(true));
 
 		Mono<TweetDto> result = tweetService.getTweetSummary(tweetId);
 
 		StepVerifier.create(result)
-			.expectNext(tweetDto)
-			.verifyComplete();
+				.expectNext(tweetDto)
+				.verifyComplete();
 		verify(tweetClient).getTweetSummary(tweetId);
-		verify(valueOperations).set(eq(key), eq(tweetDto));
+		verify(valueOperations).set(eq(key), any(byte[].class));
 	}
 
 }

@@ -43,11 +43,11 @@ public class UserController {
         return userService.searchUser(searchTerm);
     }
 
-    @PutMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PutMapping(path = "/{userId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public CompletableFuture<Void> updateUser(@AuthenticationPrincipal CustomUserDetails userDetails,
+    public CompletableFuture<Void> updateUser(@PathVariable(value = "userId") UUID userId,
                                               @ModelAttribute UserUpdateRequest userUpdateRequest) {
-        return userService.updateUser(userDetails.getUserId(), userUpdateRequest);
+        return userService.updateUser(userId, userUpdateRequest);
     }
 
 }
