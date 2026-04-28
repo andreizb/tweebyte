@@ -1,0 +1,122 @@
+services:
+  gateway-service:
+    build:
+      context: ./async/gateway-service
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_PORT: "8080"
+      USER_SERVICE_URL: http://user-service:9091/
+      TWEET_SERVICE_URL: http://tweet-service:9092/
+      INTERACTION_SERVICE_URL: http://interaction-service:9093/
+    depends_on:
+      user-service:
+        condition: service_started
+      tweet-service:
+        condition: service_started
+      interaction-service:
+        condition: service_started
+    mem_limit: 4g
+    restart: unless-stopped
+
+  user-service:
+    build:
+      context: ./async/user-service
+    ports:
+      - "9091:9091"
+    environment:
+      SERVER_PORT: "9091"
+      DB_HOST: user_service_db
+      DB_PORT: "5432"
+      TWEET_SERVICE_URL: http://tweet-service:9092
+      INTERACTION_SERVICE_URL: http://interaction-service:9093
+      SPRING_PROFILES_ACTIVE: ${STACK_PROFILE:-}
+    depends_on:
+      user_service_db:
+        condition: service_healthy
+    mem_limit: 4g
+    restart: unless-stopped
+
+  tweet-service:
+    build:
+      context: ./async/tweet-service
+    ports:
+      - "9092:9092"
+    environment:
+      SERVER_PORT: "9092"
+      DB_HOST: tweet_service_db
+      DB_PORT: "5432"
+      CACHE_HOST: redis
+      CACHE_PORT: "6379"
+      USER_SERVICE_URL: http://user-service:9091/
+      INTERACTION_SERVICE_URL: http://interaction-service:9093/
+      SPRING_PROFILES_ACTIVE: ${STACK_PROFILE:-}
+      APP_CONCURRENCY_TWEET_CUSTOM_POOL: ${APP_CONCURRENCY_TWEET_CUSTOM_POOL:-true}
+      APP_CONCURRENCY_TWEET_POOL_SIZE: ${APP_CONCURRENCY_TWEET_POOL_SIZE:-200}
+      APP_CONCURRENCY_TWEET_QUEUE_CAPACITY: ${APP_CONCURRENCY_TWEET_QUEUE_CAPACITY:-0}
+      APP_CONCURRENCY_TWEET_REJECT_POLICY: ${APP_CONCURRENCY_TWEET_REJECT_POLICY:-caller-runs}
+      AI_BACKEND: ${AI_BACKEND:-mock}
+      # Live-LLM connection knobs. For the §5.13 realism subset, set
+      # LIVE_LLM_BASE_URL=http://host.docker.internal:8081 to point at
+      # mlx_lm.server.
+      LIVE_LLM_BASE_URL: ${LIVE_LLM_BASE_URL:-http://host.docker.internal:1234}
+      LIVE_LLM_API_KEY: ${LIVE_LLM_API_KEY:-live-llm}
+      LIVE_LLM_MODEL: ${LIVE_LLM_MODEL:-qwen3.5-4b-mlx}
+      LIVE_LLM_TEMPERATURE: ${LIVE_LLM_TEMPERATURE:-0.7}
+      LIVE_LLM_MAX_TOKENS: ${LIVE_LLM_MAX_TOKENS:-200}
+      AI_MOCK_TTFT_MEAN_MS: ${AI_MOCK_TTFT_MEAN_MS:-250}
+      AI_MOCK_TTFT_LOG_SIGMA: ${AI_MOCK_TTFT_LOG_SIGMA:-0.4}
+      AI_MOCK_ITL_MEAN_MS: ${AI_MOCK_ITL_MEAN_MS:-40}
+      AI_MOCK_ITL_GAMMA_SHAPE: ${AI_MOCK_ITL_GAMMA_SHAPE:-2.5}
+      AI_MOCK_ITL_P_BURST: ${AI_MOCK_ITL_P_BURST:-0.0}
+      AI_MOCK_TOKENS_PER_RESPONSE: ${AI_MOCK_TOKENS_PER_RESPONSE:-150}
+      # Container-side path the JVM reads. Defaults to /app/calibration/calibration.json
+      # so the bind mount below makes the host-published file visible without forcing
+      # the operator to compute container paths. To disable calibration entirely,
+      # explicitly set AI_MOCK_CALIBRATION_JSON= (empty).
+      AI_MOCK_CALIBRATION_JSON: ${AI_MOCK_CALIBRATION_JSON:-/app/calibration/calibration.json}
+      JAVA_TOOL_OPTIONS: ${TWEET_JAVA_TOOL_OPTIONS:-}
+    volumes:
+      # Host-side calibration directory bind-mounted read-only into the container.
+      # Without this, AI_MOCK_CALIBRATION_JSON paths produced by the calibration
+      # CLI (which lives on the host filesystem) would silently miss inside the
+      # container and MockCalibration.loadOrDefault() would fall back to the
+      # 250ms/40ms defaults — turning a "calibrated mock" sweep into a default
+      # mock sweep with only a boot WARN to indicate it. The default host path
+      # below points at testing/calibration/ in the repo (where the calibration
+      # CLI emits its JSON); override AI_MOCK_CALIBRATION_HOST_DIR to redirect.
+      - ${AI_MOCK_CALIBRATION_HOST_DIR:-./testing/calibration}:/app/calibration:ro
+    depends_on:
+      tweet_service_db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      interaction-service:
+        condition: service_started
+    mem_limit: 4g
+    restart: unless-stopped
+
+  interaction-service:
+    build:
+      context: ./async/interaction-service
+    ports:
+      - "9093:9093"
+    environment:
+      SERVER_PORT: "9093"
+      DB_HOST: interaction_service_db
+      DB_PORT: "5432"
+      CACHE_HOST: ${INTERACTION_CACHE_HOST:-redis}
+      CACHE_PORT: ${INTERACTION_CACHE_PORT:-6379}
+      USER_SERVICE_URL: http://user-service:9091/
+      TWEET_SERVICE_URL: http://tweet-service:9092/
+      SPRING_PROFILES_ACTIVE: ${STACK_PROFILE:-}
+      JAVA_TOOL_OPTIONS: ${INTERACTION_JAVA_TOOL_OPTIONS:-}
+    depends_on:
+      interaction_service_db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 4g
+    restart: unless-stopped

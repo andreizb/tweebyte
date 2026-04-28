@@ -1,0 +1,144 @@
+package ro.tweebyte.interactionservice.service;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.redis.core.ReactiveRedisTemplate;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
+import ro.tweebyte.interactionservice.entity.FollowEntity;
+import ro.tweebyte.interactionservice.exception.FollowNotFoundException;
+import ro.tweebyte.interactionservice.mapper.FollowMapper;
+import ro.tweebyte.interactionservice.model.FollowDto;
+import ro.tweebyte.interactionservice.model.Status;
+import ro.tweebyte.interactionservice.model.UserDto;
+import ro.tweebyte.interactionservice.repository.FollowRepository;
+
+import java.time.Duration;
+import java.util.*;
+
+@Service
+@RequiredArgsConstructor
+public class FollowService {
+
+    private static final String FOLLOWING_CACHE = "following_cache";
+
+    private final UserService userService;
+
+    private final FollowRepository followRepository;
+
+    private final FollowMapper followMapper;
+
+    private final CacheManager cacheManager;
+
+    private final ReactiveRedisTemplate<String, byte[]> redisTemplate;
+
+    private final ObjectMapper objectMapper = JsonMapper.builder()
+        .addModule(new JavaTimeModule())
+        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+        .build();
+
+    public Flux<FollowDto> getFollowers(UUID userId, String authToken) {
+        return followRepository.findByFollowedIdAndStatusOrderByCreatedAtDesc(userId, Status.ACCEPTED.name())
+            .flatMap(followEntity -> userService.getUserSummary(followEntity.getFollowerId())
+                .map(userSummary -> followMapper.mapEntityToDto(followEntity, userSummary.getUserName())));
+    }
+
+    public Mono<byte[]> getFollowing(UUID userId, String authToken) {
+        String key = FOLLOWING_CACHE + "::" + userId;
+
+        return redisTemplate.opsForValue().get(key)
+            .filter(bytes -> bytes != null && bytes.length > 0)
+            .switchIfEmpty(Mono.defer(() ->
+                followRepository.findByFollowerIdAndStatus(userId, Status.ACCEPTED.name())
+                    .map(e -> followMapper.mapEntityToDto(e, "some username"))
+                    .collectList()
+                    .flatMap(list -> {
+                        try {
+                            byte[] bytes = objectMapper.writeValueAsBytes(list);
+                            return Mono.just(bytes);
+                        } catch (Exception e) {
+                            return Mono.error(e);
+                        }
+                    })
+                    .flatMap(bytes ->
+                        redisTemplate.opsForValue()
+                            .set(key, bytes, Duration.ofSeconds(60))
+                            .thenReturn(bytes)
+                    )
+            ));
+    }
+
+    public Mono<Long> getFollowersCount(UUID userId) {
+        return getFollowersCountFromRepo(userId);
+    }
+
+    @CircuitBreaker(name = "followersCountCircuitBreaker", fallbackMethod = "getFollowersCountFromCache")
+    public Mono<Long> getFollowersCountFromRepo(UUID userId) {
+        return followRepository.countByFollowedIdAndStatus(userId, Status.ACCEPTED.name());
+    }
+
+    public Mono<Long> getFollowersCountFromCache(UUID userId) {
+        String key = FOLLOWING_CACHE + userId;
+        return redisTemplate.opsForValue().get(key)
+                .cast(String.class)
+                .map(v -> {
+                    try {
+                        return Long.valueOf(objectMapper.readValue(v, new TypeReference<List<FollowDto>>() {}).size());
+                    } catch (JsonProcessingException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+    }
+
+    public Mono<Long> getFollowingCount(UUID userId) {
+        return followRepository.countByFollowerIdAndStatus(userId, Status.ACCEPTED.name());
+    }
+
+    public Flux<FollowDto> getFollowRequests(UUID userId) {
+        return followRepository.findByFollowedIdAndStatusOrderByCreatedAtDesc(userId, Status.PENDING.name())
+            .map(followMapper::mapEntityToDto);
+    }
+
+    public Flux<UUID> getFollowedIdentifiers(UUID userId) {
+        return followRepository.findByFollowerIdAndStatus(userId, Status.ACCEPTED.name())
+            .map(FollowEntity::getFollowedId);
+    }
+
+    public Mono<FollowDto> follow(UUID userId, UUID followedId) {
+        return userService.getUserSummary(followedId)
+            .map(userSummary -> followMapper.mapRequestToEntity(userId, followedId, userSummary.getIsPrivate() ? Status.PENDING.name() : Status.ACCEPTED.name()))
+            .flatMap(followRepository::save)
+            .map(followMapper::mapEntityToDto);
+    }
+
+    public Mono<Void> updateFollowRequest(UUID userId, UUID followRequestId, Status status) {
+        return followRepository.findById(followRequestId)
+            .switchIfEmpty(Mono.error(new FollowNotFoundException("Follow request not found for id " + followRequestId)))
+            .flatMap(followEntity -> {
+                if (status == Status.PENDING || followEntity.getFollowerId().equals(userId) && status == Status.ACCEPTED) {
+                    return Mono.error(new RuntimeException("Invalid status update"));
+                }
+                followEntity.setStatus(status.name());
+                return followRepository.save(followEntity);
+            })
+            .doFinally(signalType -> Objects.requireNonNull(cacheManager.getCache("follow_recommendations")).evict(userId.toString()))
+            .then();
+    }
+
+    public Mono<Void> unfollow(UUID followerId, UUID followedId) {
+        return followRepository.deleteByFollowerIdAndFollowedId(followerId, followedId)
+            .doFinally(signalType -> Objects.requireNonNull(cacheManager.getCache("follow_recommendations")).evict(followerId.toString()));
+    }
+
+}

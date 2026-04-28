@@ -1,0 +1,111 @@
+services:
+  user_service_db:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: user_service_db
+    ports:
+      - "54321:5432"
+    volumes:
+      - user_service_db_data:/var/lib/postgresql/data
+    networks:
+      default:
+        aliases:
+          - user-service-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d user_service_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  tweet_service_db:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tweet_service_db
+    ports:
+      - "54322:5432"
+    volumes:
+      - tweet_service_db_data:/var/lib/postgresql/data
+    networks:
+      default:
+        aliases:
+          - tweet-service-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tweet_service_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  interaction_service_db:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: interaction_service_db
+    ports:
+      - "54323:5432"
+    volumes:
+      - interaction_service_db_data:/var/lib/postgresql/data
+    networks:
+      default:
+        aliases:
+          - interaction-service-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d interaction_service_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.2.5-alpine
+    ports:
+      - "63790:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "localhost", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    ports:
+      - "8474:8474"
+      - "26379:26379"
+    command: ["-host=0.0.0.0", "-port=8474"]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  toxiproxy-config:
+    image: curlimages/curl:8.7.1
+    depends_on:
+      toxiproxy:
+        condition: service_started
+    entrypoint: ["/bin/sh", "-ec"]
+    command: >
+      TOXIPROXY_URL="$${TOXIPROXY_URL:-http://toxiproxy:8474}";
+      until curl -fsS "$${TOXIPROXY_URL}/version" >/dev/null 2>&1; do sleep 0.3; done;
+      curl -fsS -X POST "$${TOXIPROXY_URL}/proxies"
+      -H "Content-Type: application/json"
+      -d '{"name":"redis_proxy","listen":"0.0.0.0:26379","upstream":"redis:6379","enabled":true}'
+      >/dev/null 2>&1 || true;
+      curl -fsS -X DELETE "$${TOXIPROXY_URL}/proxies/redis_proxy/toxics/latency_down" >/dev/null 2>&1 || true;
+      curl -fsS -X DELETE "$${TOXIPROXY_URL}/proxies/redis_proxy/toxics/latency_up" >/dev/null 2>&1 || true;
+      curl -fsS -X POST "$${TOXIPROXY_URL}/proxies/redis_proxy/toxics"
+      -H "Content-Type: application/json"
+      -d '{"name":"latency_down","type":"latency","stream":"downstream","attributes":{"latency":3,"jitter":1}}'
+      >/dev/null;
+      curl -fsS -X POST "$${TOXIPROXY_URL}/proxies/redis_proxy/toxics"
+      -H "Content-Type: application/json"
+      -d '{"name":"latency_up","type":"latency","stream":"upstream","attributes":{"latency":3,"jitter":1}}'
+      >/dev/null;
+      echo "Configured benchmark Redis toxiproxy on 26379";
+    restart: "no"
+
+volumes:
+  user_service_db_data:
+  tweet_service_db_data:
+  interaction_service_db_data:
