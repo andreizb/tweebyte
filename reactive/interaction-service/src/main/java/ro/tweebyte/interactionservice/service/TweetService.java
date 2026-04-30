@@ -22,7 +22,11 @@ public class TweetService {
 
         private final TweetClient tweetClient;
         private final ReactiveRedisTemplate<String, byte[]> redisTemplate;
-        private final ObjectMapper objectMapper = new ObjectMapper();
+        // findAndRegisterModules() picks up jackson-datatype-jsr310 (LocalDateTime
+        // / LocalDate / Instant). Without it Jackson raises
+        // "Java 8 date/time type `java.time.LocalDateTime` not supported by default"
+        // on every UserDto / TweetDto serialization.
+        private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
         public Mono<TweetDto> getTweetSummary(UUID tweetId) {
                 String key = TWEET_SUMMARY_KEY_PREFIX + tweetId;

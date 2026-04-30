@@ -95,10 +95,14 @@ public class AuthenticationServiceTest {
 
     @Test
     public void registerSuccess() {
+        // register pre-checks existsByEmail / existsByUserName before calling save.
+        given(userRepository.existsByEmail(anyString())).willReturn(Mono.just(false));
+        given(userRepository.existsByUserName(anyString())).willReturn(Mono.just(false));
         given(userRepository.save(any(UserEntity.class))).willReturn(Mono.just(userEntity));
-        given(userMapper.mapRequestToEntity(any())).willReturn(userEntity);
+        given(userMapper.mapRequestToEntity(any(UserRegisterRequest.class))).willReturn(userEntity);
 
         UserRegisterRequest registerRequest = new UserRegisterRequest();
+        registerRequest.setUserName("user");
         registerRequest.setEmail(userEmail);
         registerRequest.setPassword(userPassword);
 

@@ -84,8 +84,11 @@ public class LikeService {
     }
 
     public CompletableFuture<LikeDto> likeReply(UUID userId, UUID replyId) {
+        // `findById(replyId)` — the reply just needs to exist; the liker need
+        // not be its author. Matches reactive's `findById(replyId)` in
+        // reactive/.../LikeService.java for cross-stack symmetry.
         return CompletableFuture.supplyAsync(() ->
-                replyRepository.findByIdAndUserId(replyId, userId).isPresent()
+                replyRepository.findById(replyId).isPresent()
             )
             .thenApply(exists -> {
                 if (!exists) {

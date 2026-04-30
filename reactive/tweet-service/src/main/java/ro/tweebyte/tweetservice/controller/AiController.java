@@ -84,11 +84,10 @@ public class AiController {
 
     /**
      * W2 workload: mid-stream non-blocking tool call composed as a Mono.
-     * Uses a SINGLE chatClient stream subscription so the model generates once
-     * per request (earlier two-stream variant was a bug — LM Studio would have
-     * produced 2× compute and spliced uncorrelated generations).
-     * Tool event is injected after {@code toolCallAfterTokens} via concatMap,
-     * draining from the same upstream iterator.
+     * Uses a SINGLE chatClient stream subscription per request to avoid
+     * duplicate model work and uncorrelated generations. Tool event is
+     * injected after {@code toolCallAfterTokens} via concatMap, draining
+     * from the same upstream iterator.
      */
     @PostMapping(path = "/summarize-with-tool", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> summarizeWithTool(@RequestParam(value = "userId") UUID userId,

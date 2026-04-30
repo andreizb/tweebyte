@@ -178,6 +178,102 @@ public class InteractionClientTest {
     }
 
     @Test
+    public void getRepliesCount_exceptionThrown() {
+        when(webClientMock.get()).thenReturn(requestHeadersUriSpecMock);
+        when(requestHeadersUriSpecMock.uri(any(Function.class))).thenReturn(requestHeadersSpecMock);
+        when(requestHeadersSpecMock.header(anyString(), anyString())).thenReturn(requestHeadersSpecMock);
+        when(requestHeadersSpecMock.retrieve()).thenReturn(responseSpecMock);
+
+        UUID tweetId = UUID.randomUUID();
+        when(responseSpecMock.bodyToMono(Long.class))
+            .thenReturn(Mono.error(new TweetException(new RuntimeException("boom"))));
+
+        StepVerifier.create(interactionClient.getRepliesCount(tweetId, "AUTH_TOKEN"))
+            .expectError(TweetException.class)
+            .verify();
+    }
+
+    @Test
+    public void getLikesCount_exceptionThrown() {
+        when(webClientMock.get()).thenReturn(requestHeadersUriSpecMock);
+        when(requestHeadersUriSpecMock.uri(any(Function.class))).thenReturn(requestHeadersSpecMock);
+        when(requestHeadersSpecMock.header(anyString(), anyString())).thenReturn(requestHeadersSpecMock);
+        when(requestHeadersSpecMock.retrieve()).thenReturn(responseSpecMock);
+
+        UUID tweetId = UUID.randomUUID();
+        when(responseSpecMock.bodyToMono(Long.class))
+            .thenReturn(Mono.error(new TweetException(new RuntimeException("boom"))));
+
+        StepVerifier.create(interactionClient.getLikesCount(tweetId, "AUTH_TOKEN"))
+            .expectError(TweetException.class)
+            .verify();
+    }
+
+    @Test
+    public void getRetweetsCount_exceptionThrown() {
+        when(webClientMock.get()).thenReturn(requestHeadersUriSpecMock);
+        when(requestHeadersUriSpecMock.uri(any(Function.class))).thenReturn(requestHeadersSpecMock);
+        when(requestHeadersSpecMock.header(anyString(), anyString())).thenReturn(requestHeadersSpecMock);
+        when(requestHeadersSpecMock.retrieve()).thenReturn(responseSpecMock);
+
+        UUID tweetId = UUID.randomUUID();
+        when(responseSpecMock.bodyToMono(Long.class))
+            .thenReturn(Mono.error(new TweetException(new RuntimeException("boom"))));
+
+        StepVerifier.create(interactionClient.getRetweetsCount(tweetId, "AUTH_TOKEN"))
+            .expectError(TweetException.class)
+            .verify();
+    }
+
+    @Test
+    public void getTopReply_exceptionThrown() {
+        when(webClientMock.get()).thenReturn(requestHeadersUriSpecMock);
+        when(requestHeadersUriSpecMock.uri(any(Function.class))).thenReturn(requestHeadersSpecMock);
+        when(requestHeadersSpecMock.header(anyString(), anyString())).thenReturn(requestHeadersSpecMock);
+        when(requestHeadersSpecMock.retrieve()).thenReturn(responseSpecMock);
+
+        UUID tweetId = UUID.randomUUID();
+        when(responseSpecMock.bodyToMono(ReplyDto.class))
+            .thenReturn(Mono.error(new TweetException(new RuntimeException("boom"))));
+
+        StepVerifier.create(interactionClient.getTopReply(tweetId, "AUTH_TOKEN"))
+            .expectError(TweetException.class)
+            .verify();
+    }
+
+    @Test
+    public void getRepliesForTweet_exceptionThrown() {
+        when(webClientMock.get()).thenReturn(requestHeadersUriSpecMock);
+        when(requestHeadersUriSpecMock.uri(any(Function.class))).thenReturn(requestHeadersSpecMock);
+        when(requestHeadersSpecMock.header(anyString(), anyString())).thenReturn(requestHeadersSpecMock);
+        when(requestHeadersSpecMock.retrieve()).thenReturn(responseSpecMock);
+
+        UUID tweetId = UUID.randomUUID();
+        when(responseSpecMock.bodyToFlux(ReplyDto.class))
+            .thenReturn(Flux.error(new TweetException(new RuntimeException("boom"))));
+
+        StepVerifier.create(interactionClient.getRepliesForTweet(tweetId, "AUTH_TOKEN"))
+            .expectError(TweetException.class)
+            .verify();
+    }
+
+    @Test
+    public void getFollowedIds_exceptionThrown() {
+        when(webClientMock.get()).thenReturn(requestHeadersUriSpecMock);
+        when(requestHeadersUriSpecMock.uri(any(Function.class))).thenReturn(requestHeadersSpecMock);
+        when(requestHeadersSpecMock.header(anyString(), anyString())).thenReturn(requestHeadersSpecMock);
+        when(requestHeadersSpecMock.retrieve()).thenReturn(responseSpecMock);
+
+        UUID userId = UUID.randomUUID();
+        when(responseSpecMock.bodyToMono(new ParameterizedTypeReference<List<UUID>>() {}))
+            .thenReturn(Mono.error(new FollowRetrievingException()));
+
+        StepVerifier.create(interactionClient.getFollowedIds(userId, "AUTH_TOKEN"))
+            .expectError(FollowRetrievingException.class)
+            .verify();
+    }
+
+    @Test
     public void testGetTweetSummaries() {
         when(webClientMock.post()).thenReturn(requestBodyUriSpecMock);
         when(requestBodyUriSpecMock.uri(any(Function.class))).thenReturn(requestBodySpecMock);

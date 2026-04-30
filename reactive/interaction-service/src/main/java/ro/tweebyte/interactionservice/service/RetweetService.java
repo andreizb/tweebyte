@@ -35,7 +35,11 @@ public class RetweetService {
     }
 
     public Mono<Void> updateRetweet(RetweetUpdateRequest request) {
+        // Update against a missing retweet id raises IllegalArgumentException,
+        // which the GlobalExceptionHandler maps to a structured 500 — same
+        // observable behaviour as the async stack.
         return retweetRepository.findById(request.getId())
+            .switchIfEmpty(Mono.error(new IllegalArgumentException("Retweet does not exist.")))
             .flatMap(retweet -> {
                 retweetMapper.mapRequestToEntity(request, retweet);
                 return retweetRepository.save(retweet);
@@ -44,7 +48,12 @@ public class RetweetService {
     }
 
     public Mono<Void> deleteRetweet(UUID retweetId, UUID userId) {
-        return retweetRepository.deleteById(retweetId);
+        // Delete against a missing retweet id raises IllegalArgumentException
+        // (mapped to a structured 500 by the GlobalExceptionHandler) instead
+        // of completing silently — same observable behaviour as the async stack.
+        return retweetRepository.findById(retweetId)
+            .switchIfEmpty(Mono.error(new IllegalArgumentException("Retweet does not exist.")))
+            .flatMap(retweet -> retweetRepository.deleteById(retweetId));
     }
 
     public Flux<RetweetDto> getRetweetsByUser(UUID userId) {

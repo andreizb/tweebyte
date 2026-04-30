@@ -1,5 +1,5 @@
 // AI streaming benchmark — open-loop arrival rate over the AI endpoints.
-// Paper axis 1: concurrency (RPS) × thread-pool-size sweep.
+// Sweep axis 1: concurrency (RPS) × thread-pool-size.
 //
 // Env knobs:
 //   WORKLOAD: W0 | W1 | W2 (default W1)
@@ -44,13 +44,13 @@ const PREALLOC_VUS = Number(__ENV.PREALLOC_VUS || Math.max(100, TARGET_RPS * 5))
 const MAX_VUS = Number(__ENV.MAX_VUS || PREALLOC_VUS * 3);
 
 // Valid combos: W0 × sse, W1 × {sse, buffered}, W2 × sse.
-// - W2 + buffered: refused because W2's thesis is a mid-stream tool call;
+// - W2 + buffered: refused because W2 measures a mid-stream tool call;
 //   collapsing the stream into a buffered REST response defeats the measurement.
 // - W0 + buffered: refused because W0 is the pure non-AI streaming baseline
-//   (/tweets/ai/mock-stream). It has no semantic response to buffer — there's
-//   no buffered counterpart endpoint. Earlier code silently fell through to the
-//   SSE endpoint regardless of TRANSPORT, causing rows tagged transport=buffered
-//   to actually exercise SSE and skewing transport-comparison plots.
+//   (/tweets/ai/mock-stream). It has no buffered counterpart endpoint, so the
+//   combination is invalid — refuse it explicitly rather than silently falling
+//   through to the SSE endpoint and emitting rows tagged transport=buffered
+//   that actually exercise SSE.
 if (WORKLOAD === 'W2' && TRANSPORT === 'buffered') {
   throw new Error(
     'WORKLOAD=W2 is incompatible with TRANSPORT=buffered. W2 measures a mid-stream tool call; ' +

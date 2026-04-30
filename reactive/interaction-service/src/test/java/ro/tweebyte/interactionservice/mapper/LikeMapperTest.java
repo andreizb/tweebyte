@@ -101,4 +101,20 @@ class LikeMapperTest {
 		LikeEntity likeEntity = mapper.mapCreationRequestToEntity(null, null, null);
 		assertNull(likeEntity);
 	}
+
+	@Test
+	void mapCreationRequestToEntity_ShouldMapCorrectly() {
+		// Exercises the
+		// non-null path of the protected mapCreationRequestToEntity directly.
+		UUID userId = UUID.randomUUID();
+		UUID likeableId = UUID.randomUUID();
+		String likeableType = "TWEET";
+
+		LikeEntity likeEntity = mapper.mapCreationRequestToEntity(userId, likeableId, likeableType);
+
+		assertNotNull(likeEntity);
+		assertEquals(userId, likeEntity.getUserId());
+		assertEquals(likeableId, likeEntity.getLikeableId());
+		assertEquals(likeableType, likeEntity.getLikeableType());
+	}
 }

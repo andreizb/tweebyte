@@ -395,4 +395,196 @@ public class TweetServiceTest {
         assertEquals(0, result.join().size());
     }
 
+    // ---------- additional branch-coverage tests ----------
+
+    @Test
+    void testGetUserFeedFallbackCacheReadValueThrows() throws Exception {
+        // Covers the catch-block inside getFollowedUsersFromCache returning empty list.
+        UUID userId = UUID.randomUUID();
+        when(interactionClient.getFollowedIds(eq(userId)))
+                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("downstream")));
+        when(valueOperations.get(anyString())).thenReturn("garbage");
+        when(objectMapper.readValue(anyString(), any(TypeReference.class)))
+                .thenThrow(new RuntimeException("parse-failure"));
+        when(tweetRepository.findByUserIdInOrderByCreatedAtDesc(eq(new ArrayList<>())))
+                .thenReturn(new ArrayList<>());
+        when(interactionClient.getTweetSummaries(anyList(), eq("AUTH_TOKEN")))
+                .thenReturn(CompletableFuture.completedFuture(new ArrayList<>()));
+
+        List<TweetDto> result = tweetService.getUserFeed(userId, "AUTH_TOKEN").join();
+        assertNotNull(result);
+        assertEquals(0, result.size());
+    }
+
+    @Test
+    void testGetTweetNotFoundSurfacesAs404Cause() {
+        // the exceptionally branch must rethrow TweetNotFoundException
+        // rather than wrapping it in a generic TweetException.
+        UUID tweetId = UUID.randomUUID();
+        when(tweetRepository.findById(tweetId)).thenReturn(Optional.empty());
+
+        Exception ex = assertThrows(CompletionException.class,
+                () -> tweetService.getTweet(tweetId, "AUTH_TOKEN").join());
+        Throwable cause = ex.getCause();
+        assertNotNull(cause);
+        assertInstanceOf(TweetNotFoundException.class, cause);
+    }
+
+    @Test
+    void testGetTweetWrapsOtherExceptionAsTweetException() {
+        // Covers the false branch of the cause-instanceof check — generic failures
+        // (non-TweetNotFoundException) should be wrapped in TweetException.
+        UUID tweetId = UUID.randomUUID();
+        TweetEntity entity = new TweetEntity();
+        entity.setId(tweetId);
+        when(tweetRepository.findById(tweetId)).thenReturn(Optional.of(entity));
+
+        when(interactionClient.getLikesCount(eq(tweetId), any()))
+                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("boom")));
+        when(interactionClient.getRepliesCount(eq(tweetId), any()))
+                .thenReturn(CompletableFuture.completedFuture(0L));
+        when(interactionClient.getRetweetsCount(eq(tweetId), any()))
+                .thenReturn(CompletableFuture.completedFuture(0L));
+        when(interactionClient.getRepliesForTweet(eq(tweetId), any()))
+                .thenReturn(CompletableFuture.completedFuture(List.of()));
+
+        Exception ex = assertThrows(CompletionException.class,
+                () -> tweetService.getTweet(tweetId, "AUTH_TOKEN").join());
+        Throwable cause = ex.getCause();
+        assertNotNull(cause);
+        assertInstanceOf(ro.tweebyte.tweetservice.exception.TweetException.class, cause);
+    }
+
+    @Test
+    void testGetTweetSummaryNotFound() {
+        UUID tweetId = UUID.randomUUID();
+        when(tweetRepository.findById(tweetId)).thenReturn(Optional.empty());
+
+        Exception ex = assertThrows(CompletionException.class,
+                () -> tweetService.getTweetSummary(tweetId).join());
+        assertInstanceOf(TweetNotFoundException.class, ex.getCause());
+    }
+
+    @Test
+    void testSearchTweetsWithResultsExercisesPerEntityBranch() {
+        // Covers the lambda branch inside computeTweetsFromPage when the page is
+        // non-empty (each entity gets a userSummary lookup + map call).
+        TweetEntity entity = new TweetEntity();
+        entity.setId(UUID.randomUUID());
+        entity.setUserId(UUID.randomUUID());
+
+        // Replace TweetService's `userService` field with a Mockito mock so the
+        // per-entity computeTweetsFromPage lambda can run without NPEs.
+        UserService userServiceMock = Mockito.mock(UserService.class);
+        when(userServiceMock.getUserSummary(any(UUID.class))).thenReturn(new UserDto());
+        ReflectionTestUtils.setField(tweetService, "userService", userServiceMock);
+
+        when(tweetRepository.findBySimilarity(anyString()))
+                .thenReturn(new ArrayList<>(List.of(entity)));
+        when(tweetMapper.mapEntityToDto(any(TweetEntity.class), any(UserDto.class)))
+                .thenReturn(new TweetDto());
+
+        List<TweetDto> result = tweetService.searchTweets("foo").join();
+        assertEquals(1, result.size());
+
+        // Restore (other tests don't touch this field).
+        ReflectionTestUtils.setField(tweetService, "userService", userService);
+    }
+
+    @Test
+    void testSearchTweetsByHashtagWithResults() {
+        TweetEntity entity = new TweetEntity();
+        entity.setId(UUID.randomUUID());
+        entity.setUserId(UUID.randomUUID());
+
+        UserService userServiceMock = Mockito.mock(UserService.class);
+        when(userServiceMock.getUserSummary(any(UUID.class))).thenReturn(new UserDto());
+        ReflectionTestUtils.setField(tweetService, "userService", userServiceMock);
+
+        when(tweetRepository.findByHashtag(anyString()))
+                .thenReturn(new ArrayList<>(List.of(entity)));
+        when(tweetMapper.mapEntityToDto(any(TweetEntity.class), any(UserDto.class)))
+                .thenReturn(new TweetDto());
+
+        List<TweetDto> result = tweetService.searchTweetsByHashtag("#foo").join();
+        assertEquals(1, result.size());
+
+        ReflectionTestUtils.setField(tweetService, "userService", userService);
+    }
+
+    @Test
+    void testCreateTweetTokenizationTweetNotFoundShortCircuits() throws Exception {
+        // Forces the consumer call to throw TweetNotFoundException so
+        // processTweetTokens hits the explicit catch-and-break branch (no retry,
+        // no TweetException). Uses a dedicated single-thread executor so we can
+        // join on the async tokenization tasks without affecting other tests.
+        java.util.concurrent.ExecutorService localExec = Executors.newSingleThreadExecutor();
+        ReflectionTestUtils.setField(tweetService, "executorService", localExec);
+
+        TweetCreationRequest request = new TweetCreationRequest();
+        TweetEntity tweetEntity = new TweetEntity();
+        tweetEntity.setId(UUID.randomUUID());
+
+        when(tweetMapper.mapCreationRequestToEntity(any())).thenReturn(tweetEntity);
+        when(tweetRepository.save(any())).thenReturn(tweetEntity);
+        when(tweetMapper.mapEntityToCreationDto(any())).thenReturn(new TweetDto());
+
+        Mockito.doThrow(new TweetNotFoundException("missing"))
+                .when(mentionService).handleTweetCreationMentions(any());
+        Mockito.doThrow(new TweetNotFoundException("missing"))
+                .when(hashtagService).handleTweetCreationHashtags(any());
+
+        TweetDto result = tweetService.createTweet(request).get();
+        assertNotNull(result);
+        localExec.shutdown();
+        assertTrue(localExec.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS));
+
+        // Each consumer should have been invoked exactly once (break, no retry).
+        verify(mentionService).handleTweetCreationMentions(any());
+        verify(hashtagService).handleTweetCreationHashtags(any());
+
+        // Restore default executor for any subsequent tests.
+        ReflectionTestUtils.setField(tweetService, "executorService", executorService);
+    }
+
+    @Test
+    void testCreateTweetTokenizationGenericExceptionRetriesThenWraps() throws Exception {
+        // createTweet waits for both hashtag/mention handlers via
+        // thenComposeAsync + allOf, so a TweetException raised inside either
+        // handler propagates up the chain and surfaces as the
+        // CompletableFuture's exceptional completion. Both handlers are still
+        // invoked MAX_RETRIES (=10) times, exercising the generic-exception
+        // catch branch + retry-exhaustion final throw.
+        java.util.concurrent.ExecutorService localExec = Executors.newSingleThreadExecutor();
+        ReflectionTestUtils.setField(tweetService, "executorService", localExec);
+
+        TweetCreationRequest request = new TweetCreationRequest();
+        TweetEntity tweetEntity = new TweetEntity();
+        tweetEntity.setId(UUID.randomUUID());
+
+        when(tweetMapper.mapCreationRequestToEntity(any())).thenReturn(tweetEntity);
+        when(tweetRepository.save(any())).thenReturn(tweetEntity);
+        when(tweetMapper.mapEntityToCreationDto(any())).thenReturn(new TweetDto());
+
+        Mockito.doThrow(new RuntimeException("flaky"))
+                .when(mentionService).handleTweetCreationMentions(any());
+        Mockito.doThrow(new RuntimeException("flaky"))
+                .when(hashtagService).handleTweetCreationHashtags(any());
+
+        java.util.concurrent.CompletableFuture<TweetDto> future = tweetService.createTweet(request);
+        java.util.concurrent.ExecutionException thrown = org.junit.jupiter.api.Assertions
+                .assertThrows(java.util.concurrent.ExecutionException.class, future::get);
+        org.junit.jupiter.api.Assertions.assertInstanceOf(
+                ro.tweebyte.tweetservice.exception.TweetException.class, thrown.getCause());
+
+        localExec.shutdown();
+        assertTrue(localExec.awaitTermination(15, java.util.concurrent.TimeUnit.SECONDS));
+
+        // 10 retries × 1 token-type per consumer.
+        verify(mentionService, times(10)).handleTweetCreationMentions(any());
+        verify(hashtagService, times(10)).handleTweetCreationHashtags(any());
+
+        ReflectionTestUtils.setField(tweetService, "executorService", executorService);
+    }
+
 }

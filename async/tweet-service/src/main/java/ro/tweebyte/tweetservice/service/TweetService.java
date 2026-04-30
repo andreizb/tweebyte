@@ -116,6 +116,13 @@ public class TweetService {
                 );
             })
             .exceptionally(ex -> {
+                // don't clobber TweetNotFoundException — that needs to surface as
+                // 404, not the generic 500 produced by wrapping it as TweetException.
+                Throwable cause = ex instanceof java.util.concurrent.CompletionException && ex.getCause() != null
+                        ? ex.getCause() : ex;
+                if (cause instanceof TweetNotFoundException) {
+                    throw (TweetNotFoundException) cause;
+                }
                 throw new TweetException("Failed to fetch tweet details");
             });
     }
@@ -139,10 +146,20 @@ public class TweetService {
                 request.setId(tweetEntity.getId());
                 return tweetEntity;
             })
-            .thenApplyAsync(tweetEntity -> {
-                CompletableFuture.runAsync(() -> processTweetTokens(request, mentionService::handleTweetCreationMentions), executorService);
-                CompletableFuture.runAsync(() -> processTweetTokens(request, hashtagService::handleTweetCreationHashtags), executorService);
-                return tweetEntity;
+            // Wait for the mention and hashtag handlers to complete BEFORE the
+            // outer chain returns its response, so an immediate edit on the same
+            // tweet does not race their @Version-bump → 500
+            // "Row was updated or deleted by another transaction". The reactive
+            // stack composes the same handlers via Mono.when (`.and(...)`); this
+            // thenComposeAsync + allOf gives the async stack the same waiting
+            // semantics. Trade-off: createTweet's response p99 carries
+            // max(mentions, hashtags) handler latency.
+            .thenComposeAsync(tweetEntity -> {
+                CompletableFuture<Void> mentions = CompletableFuture.runAsync(
+                    () -> processTweetTokens(request, mentionService::handleTweetCreationMentions), executorService);
+                CompletableFuture<Void> hashtags = CompletableFuture.runAsync(
+                    () -> processTweetTokens(request, hashtagService::handleTweetCreationHashtags), executorService);
+                return CompletableFuture.allOf(mentions, hashtags).thenApply(v -> tweetEntity);
             }, executorService)
             .thenApplyAsync(tweetMapper::mapEntityToCreationDto, executorService);
     }

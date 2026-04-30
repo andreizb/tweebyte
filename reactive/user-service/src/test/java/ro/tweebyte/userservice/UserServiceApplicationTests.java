@@ -25,4 +25,13 @@ class UserServiceApplicationTests {
 		}
 	}
 
+	@Test
+	public void main() {
+		// Invokes the application entrypoint
+		// directly so SpringApplication.run is exercised. The surrounding
+		// @SpringBootTest already provides config / mocked beans for the second
+		// context boot.
+		UserServiceApplication.main(new String[] {});
+	}
+
 }

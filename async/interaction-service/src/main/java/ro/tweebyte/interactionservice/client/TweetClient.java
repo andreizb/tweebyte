@@ -1,5 +1,6 @@
 package ro.tweebyte.interactionservice.client;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -48,12 +49,15 @@ public class TweetClient {
         }
     }
 
-    @SuppressWarnings("unchecked")
     public List<TweetDto> getUserTweetsSummary(UUID userId) {
         try {
             HttpRequest request = HttpRequest.newBuilder().uri(new URI(BASE_URL + "tweets/user/" + userId + "/summary")).GET().build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            return clientUtil.parseResponse(response, List.class);
+            // Pass an explicit TypeReference so Jackson produces actual TweetDto
+            // elements instead of LinkedHashMaps. Downstream code such as
+            // RecommendationService.calculateUserScore casts to TweetDto, so the
+            // typed parse is what keeps that path off a ClassCastException → 500.
+            return clientUtil.parseResponse(response, new TypeReference<List<TweetDto>>() {});
         } catch (ClientException e) {
             if (e.getResponse().statusCode() == HttpStatus.NOT_FOUND.value()) {
                 throw new TweetNotFoundException("Tweets not found for user id: " + userId);
@@ -65,12 +69,16 @@ public class TweetClient {
         }
     }
 
-    @SuppressWarnings("unchecked")
     public List<TweetDto.HashtagDto> getPopularHashtags() {
         try {
-            HttpRequest request = HttpRequest.newBuilder().uri(new URI(BASE_URL + "tweets/hashtags/popular")).GET().build();
+            // tweet-service maps `/tweets/hashtag/popular` (singular); the URL
+            // path here must match exactly or every hashtag-rec request 500s.
+            HttpRequest request = HttpRequest.newBuilder().uri(new URI(BASE_URL + "tweets/hashtag/popular")).GET().build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            return clientUtil.parseResponse(response, List.class);
+            // Same typed-collection treatment as getUserTweetsSummary — pass an
+            // explicit TypeReference so the parser produces actual HashtagDto
+            // elements instead of LinkedHashMaps.
+            return clientUtil.parseResponse(response, new TypeReference<List<TweetDto.HashtagDto>>() {});
         } catch (Exception e) {
             throw new InteractionException(e);
         }

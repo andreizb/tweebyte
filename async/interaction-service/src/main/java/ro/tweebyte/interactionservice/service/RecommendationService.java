@@ -48,11 +48,16 @@ public class RecommendationService {
     @Resource(name = "recommendationService")
     private RecommendationService self;
 
-//    @PostConstruct
-//    public void startComputationTasks() {
-//        scheduler.scheduleAtFixedRate(self::computePopularUsers, 0, 2, TimeUnit.DAYS);
-//        scheduler.scheduleAtFixedRate(self::computePopularHashtags, 0, 7, TimeUnit.HOURS);
-//    }
+    /*
+     * Both `computePopularUsers` and `computePopularHashtags` are also called
+     * lazily on cache miss (see `getUserRecommendations` and the
+     * `@Cacheable("popular_hashtags")` flow). The reactive
+     * RecommendationService has no scheduled pre-compute at all — it relies
+     * entirely on the lazy cache-miss path. To keep FE-equivalent behaviour
+     * across stacks, the async stack relies on lazy cache-miss only as well;
+     * any future pre-warm scheduler must be enabled on BOTH stacks together
+     * with the same 24-hour initial delay.
+     */
 
     public CompletableFuture<List<UserDto>> recommendUsersToFollow(UUID userId, Pageable pageable) {
         return CompletableFuture.supplyAsync(() -> self.getUserRecommendations(userId, pageable));

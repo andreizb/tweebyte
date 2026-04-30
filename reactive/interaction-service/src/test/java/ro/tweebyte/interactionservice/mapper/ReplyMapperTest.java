@@ -116,4 +116,13 @@ class ReplyMapperTest {
 
 		assertNotNull(replyEntity);
 	}
+
+	@Test
+	void mapEntityToDto_NullEntity_NullUserName_ShouldReturnNull() {
+		// Null entity
+		// AND null userName must still yield null (separate null-safety case from
+		// mapEntityToCreationDto(null), which is covered by mapEntityToDto_NullEntity_ShouldReturnNull).
+		ReplyDto replyDto = mapper.mapEntityToDto(null, null);
+		assertNull(replyDto);
+	}
 }

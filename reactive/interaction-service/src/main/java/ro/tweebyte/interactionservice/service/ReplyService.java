@@ -38,7 +38,13 @@ public class ReplyService {
     }
 
     public Mono<Void> updateReply(ReplyUpdateRequest request) {
+        // Update against a missing reply id raises IllegalArgumentException
+        // (mapped to a structured 500 by the GlobalExceptionHandler). Without
+        // the switchIfEmpty, findById's Mono.empty() would surface as a silent
+        // 200 OK at the controller — the async stack throws in the same shape,
+        // so this preserves cross-stack observable behaviour.
         return replyRepository.findById(request.getId())
+            .switchIfEmpty(Mono.error(new IllegalArgumentException("Unauthorized or reply not found")))
             .flatMap(reply -> {
                 if (reply.getUserId().equals(request.getUserId())) {
                     replyMapper.mapRequestToEntity(request, reply);
@@ -49,7 +55,10 @@ public class ReplyService {
     }
 
     public Mono<Void> deleteReply(UUID userId, UUID replyId) {
+        // Same guard as updateReply: missing reply id raises IllegalArgumentException
+        // instead of completing empty (which would surface as a silent 200 OK).
         return replyRepository.findById(replyId)
+            .switchIfEmpty(Mono.error(new IllegalArgumentException("Unauthorized or reply not found")))
             .flatMap(reply -> {
                 if (reply.getUserId().equals(userId)) {
                     return replyRepository.deleteById(replyId);

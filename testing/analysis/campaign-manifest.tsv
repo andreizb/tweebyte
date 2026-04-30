@@ -3,39 +3,10 @@
 # Format: <result-batch-dir-name>\t<campaign-label> (TSV).
 # Lines starting with '#' are comments.
 #
-# Manifest entries are AUTHORITATIVE — they override the campaign label
-# that the run's k6 handleSummary JSON had baked in at execution time.
-# Use this to post-hoc relabel batches that launched with the wrong
-# --ai-campaign flag, or to backfill legacy runs that predate the flag.
-#
-# ----------------------------------------------------------------------
-# 2026-04-28: W0 async-pool=400 cleanup
-#
-# The canonical 5-rep async-W0-pool=400 cell is the THIRD batch
-# (results_ai_streaming_20260428_023918_VANblx — 5 OK runs in a single
-# campaign-tagged batch). The first two batches launched with
-# --ai-campaign=headline-5rep-rerun-2026-04-28 but are operationally
-# early attempts:
-#
-#   _1ApaCj  — single-rep first attempt before the readiness-gate
-#              warm-up cadence settled (1 OK run only)
-#   _dXSOMo  — 1-CONTAMINATED + 1-OK retry that surfaced the
-#              connection-refused signature the readiness gate now
-#              guards against (2 runs total, 1 of which the validation
-#              sidecar already flags CONTAMINATED)
-#
-# Without these manifest entries the canonical campaign reads as
-# 8 cells x 5 reps + 1 cell x 7 OK + 1 CONTAMINATED — which is correct
-# end-to-end provenance but inconsistent with the manuscript-clean
-# "9 cells x 5 reps" claim. Relabel the early attempts to a separate
-# campaign so the canonical campaign reads cleanly without losing the
-# early-attempt evidence (it lives under early-w0-attempts-2026-04-28
-# and remains in the runs.csv with full source-file traceability).
+# Manifest entries override the campaign label baked into the run's k6
+# handleSummary JSON. Use this when the execution-time --ai-campaign
+# should not be the analysis-time campaign for a given batch, or to
+# assign a campaign to result dirs that lack one in their k6 handleSummary JSON.
 results_ai_streaming_20260428_022029_1ApaCj	early-w0-attempts-2026-04-28
 results_ai_streaming_20260428_022904_dXSOMo	early-w0-attempts-2026-04-28
-
-# 2026-04-28 realism-subset rerun: the initial reactive W2 batch was OOM-killed mid-run
-# (TWEET_JAVA_TOOL_OPTIONS heap cap missing on stack-switch). Reps survive validation but
-# represent contaminated environment; the canonical rerun is in 180846. Relabel here so
-# the 180250 batch doesn't pool into the realism-subset-2026-04-28 cell aggregates.
 _oom_affected_results_ai_streaming_20260428_180250_UxTzDT	realism-subset-oom-affected-2026-04-28

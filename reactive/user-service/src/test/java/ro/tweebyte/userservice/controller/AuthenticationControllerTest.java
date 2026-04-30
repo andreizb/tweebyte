@@ -44,7 +44,10 @@ public class AuthenticationControllerTest {
 
     @Test
     public void userLogin() {
-        UserLoginRequest request = new UserLoginRequest("user", "pass");
+        // UserLoginRequest now has @Email + @NotBlank validation, so the
+        // previous "user"/"pass" payload is rejected with 400 before reaching the
+        // controller. Use a valid email for the request body.
+        UserLoginRequest request = new UserLoginRequest("user@example.com", "pass");
         webTestClient
                 .post().uri("/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)

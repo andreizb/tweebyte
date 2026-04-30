@@ -17,4 +17,12 @@ class CustomUserDetailsTest {
         assertEquals(userId, userDetails.getUserId());
     }
 
+    @Test
+    void getEmail() {
+        String email = "testUser@test.com";
+        CustomUserDetails userDetails = new CustomUserDetails(UUID.randomUUID(), email);
+
+        assertEquals(email, userDetails.getEmail());
+    }
+
 }

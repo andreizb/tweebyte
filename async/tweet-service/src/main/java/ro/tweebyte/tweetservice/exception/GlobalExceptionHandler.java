@@ -39,6 +39,20 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(getErrorsMap(errors, request, HttpStatus.BAD_REQUEST), new HttpHeaders(), HttpStatus.BAD_REQUEST);
     }
 
+    @ExceptionHandler(TweetNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleTweetNotFound(TweetNotFoundException ex, HttpServletRequest request) {
+        return new ResponseEntity<>(getErrorsMap(List.of(ex.getMessage()), request, HttpStatus.NOT_FOUND), new HttpHeaders(), HttpStatus.NOT_FOUND);
+    }
+
+    // malformed UUID in @PathVariable → 400 (mirroring reactive WebFlux default).
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, Object>> handlePathTypeMismatch(
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ex,
+            HttpServletRequest request) {
+        return new ResponseEntity<>(getErrorsMap(List.of(ex.getMessage()), request, HttpStatus.BAD_REQUEST),
+                new HttpHeaders(), HttpStatus.BAD_REQUEST);
+    }
+
     @ExceptionHandler(Throwable.class)
     public ResponseEntity<Map<String, Object>> handleException(Throwable ex, HttpServletRequest request) {
         return new ResponseEntity<>(getErrorsMap(List.of(ex.getMessage()), request, HttpStatus.INTERNAL_SERVER_ERROR), new HttpHeaders(), HttpStatus.INTERNAL_SERVER_ERROR);

@@ -35,7 +35,7 @@ usage() {
   cat <<'EOF'
 Usage:
   ./testing/performance/jmeter/run_bench.sh \
-    --workload <user-summary|user-summary-legacy|user-create|follow-create|tweet-update|tweets-get> \
+    --workload <user-summary|user-summary-alt|user-create|follow-create|tweet-update|tweets-get> \
     [--base-url <url>] \
     [--payload-count <count>] \
     [--auto-prepare <0|1>]
@@ -57,12 +57,12 @@ Optional explicit payload files:
   --tweet-updates-file <path>
 
 Workloads:
-  user-summary         GET /users/summary/{id} legacy JMeter benchmark
-  user-summary-legacy  older user-summary variant kept for reference
-  user-create          legacy login/auth JMeter benchmark
-  follow-create        POST /follows/{targetId}/{id} legacy JMeter benchmark
-  tweet-update         PUT /tweets/{tweetId} legacy JMeter benchmark
-  tweets-get           GET /tweets/user/{id}/summary legacy JMeter benchmark
+  user-summary         GET /users/summary/{id} JMeter benchmark
+  user-summary-alt  alternate user-summary variant kept for compatibility
+  user-create          login/auth JMeter benchmark
+  follow-create        POST /follows/{targetId}/{id} JMeter benchmark
+  tweet-update         PUT /tweets/{tweetId} JMeter benchmark
+  tweets-get           GET /tweets/user/{id}/summary JMeter benchmark
 EOF
 }
 
@@ -130,32 +130,32 @@ resolve_workload() {
   case "$WORKLOAD" in
     user-summary)
       PLAN="${WORKLOAD_DIR}/user-summary.jmx"
-      WORKLOAD_DESC="GET /users/summary/{id} legacy JMeter benchmark"
+      WORKLOAD_DESC="GET /users/summary/{id} JMeter benchmark"
       DEFAULT_BASE_URL="http://localhost:9091"
       ;;
-    user-summary-legacy)
-      PLAN="${WORKLOAD_DIR}/user-summary-legacy.jmx"
-      WORKLOAD_DESC="Older user-summary JMeter variant kept for reference"
+    user-summary-alt)
+      PLAN="${WORKLOAD_DIR}/user-summary-alt.jmx"
+      WORKLOAD_DESC="Alternate user-summary JMeter variant kept for compatibility"
       DEFAULT_BASE_URL="http://localhost:9091"
       ;;
     user-create)
       PLAN="${WORKLOAD_DIR}/user-create.jmx"
-      WORKLOAD_DESC="Legacy auth/login JMeter benchmark"
+      WORKLOAD_DESC="Auth/login JMeter benchmark"
       DEFAULT_BASE_URL="http://localhost:9091"
       ;;
     follow-create)
       PLAN="${WORKLOAD_DIR}/follow-create.jmx"
-      WORKLOAD_DESC="POST /follows/{targetId}/{id} legacy JMeter benchmark"
+      WORKLOAD_DESC="POST /follows/{targetId}/{id} JMeter benchmark"
       DEFAULT_BASE_URL="http://localhost:9093"
       ;;
     tweet-update)
       PLAN="${WORKLOAD_DIR}/tweet-update.jmx"
-      WORKLOAD_DESC="PUT /tweets/{tweetId} legacy JMeter benchmark"
+      WORKLOAD_DESC="PUT /tweets/{tweetId} JMeter benchmark"
       DEFAULT_BASE_URL="http://localhost:9092"
       ;;
     tweets-get)
       PLAN="${WORKLOAD_DIR}/tweets-get.jmx"
-      WORKLOAD_DESC="GET /tweets/user/{id}/summary legacy JMeter benchmark"
+      WORKLOAD_DESC="GET /tweets/user/{id}/summary JMeter benchmark"
       DEFAULT_BASE_URL="http://localhost:9092"
       ;;
     *)
@@ -230,7 +230,7 @@ prepare_payload_if_needed() {
   local needs_prepare="0"
 
   case "$WORKLOAD" in
-    user-summary|user-summary-legacy|tweets-get)
+    user-summary|user-summary-alt|tweets-get)
       USER_IDS_FILE="${USER_IDS_FILE:-${PAYLOAD_DIR}/user-ids.csv}"
       [[ -f "$USER_IDS_FILE" ]] || needs_prepare="1"
       ;;
@@ -260,7 +260,7 @@ prepare_payload_if_needed() {
   echo "Auto-preparing JMeter payload for workload '${WORKLOAD}'..."
 
   case "$WORKLOAD" in
-    user-summary|user-summary-legacy)
+    user-summary|user-summary-alt)
       python3 "$PAYLOAD_TOOL" user-summary \
         --count "$PAYLOAD_COUNT" \
         --output-dir "$PAYLOAD_DIR" \

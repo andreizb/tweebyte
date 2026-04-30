@@ -124,4 +124,17 @@ class RetweetMapperTest {
 
 		assertNull(retweetEntity);
 	}
+
+	@Test
+	void testMapRequestToEntityWithNullUpdateRequest() {
+		// Mirrors reactive RetweetMapperTest#mapRequestToEntity_NullUpdateRequest_ShouldNotModifyEntity —
+		// passing a null update request must leave the target entity intact.
+		RetweetEntity retweetEntity = new RetweetEntity();
+		retweetEntity.setContent("original");
+
+		retweetMapper.mapRequestToEntity(null, retweetEntity);
+
+		assertNotNull(retweetEntity);
+		assertEquals("original", retweetEntity.getContent());
+	}
 }

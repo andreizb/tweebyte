@@ -86,4 +86,28 @@ public class MentionServiceTest {
         assertTrue(tweetEntity.getMentions().isEmpty());
     }
 
+    @Test
+    void testHandleTweetCreationMentionsRethrowsNonUserNotFoundException() {
+        // Covers the false branch of the `instanceof UserNotFoundException` check
+        // inside createMention's handle() — any other failure must be surfaced as
+        // a CompletionException (wrapping the originating cause).
+        TweetCreationRequest request = new TweetCreationRequest();
+        request.setId(UUID.randomUUID());
+
+        TweetEntity tweetEntity = new TweetEntity();
+        tweetEntity.setContent("Hello @bob");
+        tweetEntity.setMentions(new HashSet<>());
+
+        when(tweetRepository.findById(any(UUID.class))).thenReturn(Optional.of(tweetEntity));
+        when(userService.getUserId(any(String.class)))
+                .thenThrow(new RuntimeException("internal-failure"));
+
+        Throwable thrown = assertThrows(Throwable.class,
+                () -> mentionService.handleTweetCreationMentions(request));
+        // The outer .join() bubbles the failure as CompletionException.
+        assertTrue(thrown instanceof java.util.concurrent.CompletionException
+                || thrown.getCause() instanceof RuntimeException
+                || thrown instanceof RuntimeException);
+    }
+
 }

@@ -22,7 +22,10 @@ public interface TweetRepository extends ReactiveCrudRepository<TweetEntity, UUI
     @Query("SELECT * FROM tweets WHERE content ILIKE '%' || :searchTerm || '%'")
     Flux<TweetEntity> findBySimilarity(String searchTerm);
 
-    @Query("SELECT t.* FROM tweets t JOIN tweet_hashtags th ON t.id = th.tweet_id JOIN hashtags h ON th.hashtag_id = h.id WHERE h.text = :searchTerm")
+    // The join target is `tweet_hashtag` (singular) as defined in schema.sql,
+    // matching the async stack's repository — a divergent table name here
+    // would surface as `bad SQL grammar` 500s on every hashtag search.
+    @Query("SELECT t.* FROM tweets t JOIN tweet_hashtag th ON t.id = th.tweet_id JOIN hashtags h ON th.hashtag_id = h.id WHERE h.text = :searchTerm")
     Flux<TweetEntity> findByHashtag(String searchTerm);
 
 }

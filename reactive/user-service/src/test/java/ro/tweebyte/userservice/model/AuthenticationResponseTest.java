@@ -3,6 +3,7 @@ package ro.tweebyte.userservice.model;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class AuthenticationResponseTest {
 
@@ -22,6 +23,24 @@ class AuthenticationResponseTest {
         authenticationResponse.setToken(token);
 
         assertEquals(token, authenticationResponse.getToken());
+    }
+
+    @Test
+    void testAllArgsConstructor() {
+        AuthenticationResponse response = new AuthenticationResponse("sampleToken");
+
+        assertNotNull(response);
+        assertEquals("sampleToken", response.getToken());
+    }
+
+    @Test
+    void testBuilder() {
+        AuthenticationResponse response = AuthenticationResponse.builder()
+                .token("sampleToken")
+                .build();
+
+        assertNotNull(response);
+        assertEquals("sampleToken", response.getToken());
     }
 
 }

@@ -38,24 +38,32 @@ public class CleanupService {
 
     private final Scheduler scheduler = Schedulers.newBoundedElastic(5, 10, "CleanupService");
 
-//    @PostConstruct
-//    public void startCleanupTasks() {
-//        Flux.interval(Duration.ZERO, Duration.ofHours(3), scheduler)
-//            .flatMap(tick -> self.cleanupRejectedFollowRequests())
-//            .subscribe();
-//
-//        Flux.interval(Duration.ZERO, Duration.ofHours(2), scheduler)
-//            .flatMap(tick -> self.cleanupOrphanLikes())
-//            .subscribe();
-//
-//        Flux.interval(Duration.ZERO, Duration.ofHours(1), scheduler)
-//            .flatMap(tick -> self.cleanupOrphanReplies())
-//            .subscribe();
-//
-//        Flux.interval(Duration.ZERO, Duration.ofHours(1), scheduler)
-//            .flatMap(tick -> self.cleanupOrphanRetweets())
-//            .subscribe();
-//    }
+    /**
+     * Cleanup tasks fire with a 24-hour INITIAL DELAY so a single benchmark or
+     * dev session (typically minutes, not days) sees no cleanup noise in its
+     * latency / GC numbers. Once the application has been up for 24h
+     * (production-like), the schedules tick at their configured periods. The
+     * async stack's CleanupService.startCleanupTasks uses the same 24h initial
+     * delay via ScheduledExecutorService — same observable behaviour on both stacks.
+     */
+    @PostConstruct
+    public void startCleanupTasks() {
+        Flux.interval(Duration.ofHours(24), Duration.ofHours(3), scheduler)
+            .flatMap(tick -> self.cleanupRejectedFollowRequests())
+            .subscribe();
+
+        Flux.interval(Duration.ofHours(24), Duration.ofHours(2), scheduler)
+            .flatMap(tick -> self.cleanupOrphanLikes())
+            .subscribe();
+
+        Flux.interval(Duration.ofHours(24), Duration.ofHours(1), scheduler)
+            .flatMap(tick -> self.cleanupOrphanReplies())
+            .subscribe();
+
+        Flux.interval(Duration.ofHours(24), Duration.ofHours(1), scheduler)
+            .flatMap(tick -> self.cleanupOrphanRetweets())
+            .subscribe();
+    }
 
     @Transactional
     public Mono<Void> cleanupRejectedFollowRequests() {

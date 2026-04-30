@@ -34,4 +34,24 @@ class UserExceptionTest {
         assertNotNull(userException);
     }
 
+    @Test
+    void testExceptionConstructorWithMessage() {
+        String message = "User not found";
+
+        UserException exception = new UserException(message);
+
+        assertNotNull(exception);
+        assertEquals(message, exception.getMessage());
+    }
+
+    @Test
+    void testExceptionConstructorWithCause() {
+        Exception cause = new Exception("Database error");
+
+        UserException exception = new UserException(cause);
+
+        assertNotNull(exception);
+        assertEquals(cause, exception.getCause());
+    }
+
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # realism-backend.sh — host-side mlx_lm.server lifecycle for the §5.13 realism subset.
 #
-# Why this script exists. The realism subset of the AppSci-Q2 study (RESULTS.md
+# Why this script exists. The realism subset (RESULTS.md
 # §5.13) needs a *concurrent-batching* OpenAI-compatible LLM endpoint serving
 # the same Qwen3.5-4B-MLX-4bit weights the mock was calibrated against (§5.2).
 # LM Studio's MLX runtime hard-rejects --parallel > 1 for vision-architecture

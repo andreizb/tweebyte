@@ -99,11 +99,10 @@ public class CollectSamplesCommand implements Callable<Integer> {
             long lastToken = -1;
             int tokens = 0;
             // Per-sample wall-clock budget: bail if the response stream stalls past this.
-            // LM Studio occasionally drops the stream without sending [DONE] — we observed
-            // this in the 2026-04-27 calibration where reading from response.body() parked
-            // indefinitely on ArrayBlockingQueue.take() at sample ~1226. The HttpRequest
-            // timeout above only covers connect+headers; once the body input stream is
-            // open, the read can hang forever. Watch the wall clock and break out instead.
+            // LM Studio can drop the stream without sending [DONE], leaving the body input
+            // stream parked indefinitely on ArrayBlockingQueue.take(). The HttpRequest
+            // timeout above only covers connect+headers; once the body stream is open,
+            // the read can hang forever. Watch the wall clock and break out instead.
             long sampleDeadlineNanos = start + Duration.ofSeconds(90).toNanos();
             try (BufferedReader reader = new BufferedReader(new java.io.InputStreamReader(response.body()))) {
                 String line;

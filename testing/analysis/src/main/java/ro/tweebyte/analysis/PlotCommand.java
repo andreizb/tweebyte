@@ -38,7 +38,7 @@ public class PlotCommand implements Callable<Integer> {
 
     @CommandLine.Option(names = "--filter-campaign",
             description = "Optional comma-separated list of campaign labels. When set, only cells whose "
-                    + "campaign appears in the list are rendered. Use to produce manuscript-only figures "
+                    + "campaign appears in the list are rendered. Use to produce single-campaign figures "
                     + "from a multi-campaign cells.csv without re-running report. The campaign field is "
                     + "still used in grouping keys, so a multi-campaign cells.csv without --filter-campaign "
                     + "yields one figure per (workload, transport, calibration_tag, campaign) combination.")
@@ -75,9 +75,8 @@ public class PlotCommand implements Callable<Integer> {
     /** Per workload + transport + calibration tag + campaign: line plot of
      *  target_rps vs e2e p99, one series per stack × pool_size × reject_policy.
      *
-     *  <p>Campaign added to the grouping key on 2026-04-28 so cells from
-     *  pre-cleanup pilots, the canonical 5-rep rerun, and the diagonal
-     *  cliff slice render as separate figures even when the rest of the
+     *  <p>Campaign is part of the grouping key so operationally distinct
+     *  campaign slices render as separate figures even when the rest of the
      *  cell-key dimensions overlap.
      */
     private void plotConcurrencyScaling(List<CellStat> cells) throws Exception {
@@ -130,9 +129,9 @@ public class PlotCommand implements Callable<Integer> {
 
     /** For async only: pool_size vs p99 at fixed target_rps, one series per
      *  (target_rps, calibration_tag, campaign). Campaign in the grouping key
-     *  matches plotConcurrencyScaling so the same 2026-04-28 split applies
-     *  here too — pre-cleanup, headline-5rep, and diagonal-cliff cells render
-     *  as separate figures.
+     *  matches plotConcurrencyScaling so the same campaign-aware split applies
+     *  here too — campaign-scoped cells render as separate figures even
+     *  when the rest of the cell-key dimensions overlap.
      */
     private void plotPoolSizeScaling(List<CellStat> cells) throws Exception {
         List<CellStat> asyncCells = cells.stream().filter(c -> "async".equals(c.stack)).toList();
@@ -175,11 +174,11 @@ public class PlotCommand implements Callable<Integer> {
      * workload, transport, target_rps, cancel_rate, calibration_tag, campaign),
      * x = arrival-rate / pool size (open-loop λ/T), y = p99_async / p99_reactive.
      *
-     * <p>Calibration tag added to the matching key on 2026-04-27 so
-     * calibrated and uncalibrated cells don't pair across batches.
-     * Campaign added 2026-04-28 so headline-5rep cells don't pair against
-     * diagonal cells (or vice versa) that happen to share the same load
-     * shape — the cell-key dimension on disk in cells.csv is mirrored here.
+     * <p>Both calibration_tag and campaign are part of the matching key,
+     * so campaign-scoped cells do not pair with other campaign slices that
+     * share the same load shape, and calibrated and uncalibrated cells do
+     * not pair across batches. The cell-key dimensions on disk in cells.csv
+     * are mirrored here.
      */
     private void plotH1ValidationScatter(List<CellStat> cells) throws Exception {
         Map<String, List<CellStat>> asyncByShared = new LinkedHashMap<>();

@@ -36,4 +36,19 @@ class UserServiceTest {
         verify(userClient).getUserSummary(userId);
     }
 
+    @Test
+    void testGetUserSummaryClientError() {
+        // Mirrors reactive UserServiceTest#getUserSummary_cacheMiss_clientError —
+        // upstream client failure must propagate (no value cached, exception bubbles).
+        UUID userId = UUID.randomUUID();
+        RuntimeException clientError = new RuntimeException("Client error");
+
+        when(userClient.getUserSummary(eq(userId))).thenThrow(clientError);
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+            () -> userService.getUserSummary(userId));
+        assertEquals(clientError, thrown);
+        verify(userClient).getUserSummary(userId);
+    }
+
 }

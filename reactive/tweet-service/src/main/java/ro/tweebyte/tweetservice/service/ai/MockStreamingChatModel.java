@@ -94,7 +94,7 @@ public class MockStreamingChatModel implements ChatModel {
                     }
                     // Zero-inflated: with prob itlPBurst, intra-burst zero-delay token;
                     // otherwise sample from the gap-mode gamma fit. itlPBurst=0 (the
-                    // default for pre-zero-inflation calibration files) collapses
+                    // default for calibration files without `p_burst`) collapses
                     // this back to pure gamma — preserving prior behaviour.
                     if (itlPBurst > 0.0 && ThreadLocalRandom.current().nextDouble() < itlPBurst) {
                         return Mono.just(asDeltaResponse("token_" + i + " ", i, tokensPerResponse));

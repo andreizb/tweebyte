@@ -31,9 +31,9 @@ import java.nio.file.Path;
  * {@code 1 - p_burst} the inter-token interval is sampled from the gamma
  * fit, which is itself fitted only to gap-mode samples (ITL ≥ 0.1 ms) so
  * the mock reproduces both modes of the empirical bimodal distribution
- * while preserving E[response]. Older calibration.json files without the
- * {@code p_burst} field are accepted with {@code p_burst = 0.0}, in which
- * case the mock degenerates to the pre-existing pure-gamma behaviour.
+ * while preserving E[response]. Calibration files without the
+ * {@code p_burst} field are accepted with {@code p_burst = 0.0}, which
+ * collapses the mock to pure-gamma behaviour.
  *
  * <p>Values are {@code double} throughout — {@code long} truncation of the
  * mean biased the log-normal centre under K-S, so we keep full precision
@@ -72,7 +72,7 @@ public record MockCalibration(double ttftMeanMs, double ttftLogSigma,
             double sigma = ttftFit.path("sigma").asDouble(Double.NaN);
             double shape = itlFit.path("shape").asDouble(Double.NaN);
             double scale = itlFit.path("scale").asDouble(Double.NaN);
-            // p_burst is optional. Pre-zero-inflation calibration.json files lack
+            // p_burst is optional. Calibration files without the field lack
             // the field; we read 0.0 and the mock falls back to pure-gamma ITL.
             double pBurst = clampPBurst(itlFits.path("p_burst").asDouble(0.0));
             if (Double.isNaN(mu) || Double.isNaN(sigma) || Double.isNaN(shape) || Double.isNaN(scale)) {

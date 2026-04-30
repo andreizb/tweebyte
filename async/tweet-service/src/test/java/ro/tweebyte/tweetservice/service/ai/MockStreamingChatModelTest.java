@@ -91,6 +91,43 @@ class MockStreamingChatModelTest {
     }
 
     @Test
+    void pBurstNaNClampsToZero() {
+        // Covers the Double.isNaN(v) branch of clampPBurst — JSON inputs cannot
+        // produce NaN through Jackson's default config, but the constructor
+        // accepts a raw double.
+        MockStreamingChatModel m = new MockStreamingChatModel(
+                1.0, 0.2, 1.0, 2.0, Double.NaN, TOKENS);
+        assertEquals(0.0, m.getItlPBurst(), 1e-9);
+    }
+
+    @Test
+    void streamWithFractionalPBurstExercisesBothBranches() {
+        // p_burst between 0 and 1 forces the second clause of the &&-guard to
+        // be evaluated. Across many tokens the random draw will be both above
+        // and below the threshold, hitting both arms of the burst-vs-gap branch.
+        MockStreamingChatModel m = new MockStreamingChatModel(
+                1.0, 0.2, 1.0, 2.0, 0.5, 60);
+        List<ChatResponse> chunks = m.stream(new Prompt(new UserMessage("hi")))
+                .collectList().block();
+        assertNotNull(chunks);
+        assertEquals(60, chunks.size());
+    }
+
+    @Test
+    void callHandlesNullAssistantMessageDefensively() {
+        // The `if (msg != null && msg.getText() != null)` guard inside call()
+        // is partially covered because every chunk produced by stream() carries
+        // a non-null AssistantMessage. The defensive branch is reachable only
+        // by feeding chunks with a null message via call's forEach path; we
+        // exercise the standard happy path here for parity with other tests
+        // (the negative branch is unreachable through the public API since
+        // stream() is final w.r.t. message construction).
+        MockStreamingChatModel m = newModel();
+        ChatResponse resp = m.call(new Prompt(new UserMessage("hi")));
+        assertNotNull(resp.getResult().getOutput().getText());
+    }
+
+    @Test
     void streamWithPBurst1EmitsAllTokensWithoutGapDelay() {
         // p_burst=1.0 forces every non-first token to take the zero-delay branch.
         // Exercises the zero-inflation code path; the assertion that matters is

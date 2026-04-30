@@ -116,12 +116,11 @@ public class AiController {
             try {
                 // Delay BEFORE each token (including the first) so the W0 baseline
                 // measures TTFT ≈ itlMs symmetrically with the reactive stack's
-                // Flux.range(...).concatMap(i -> Mono.delay(itlMs)) shape. Earlier
-                // versions emitted token_0 immediately and produced async W0 TTFT
-                // p99 ≈ 5 ms vs reactive ≈ 50 ms, which Codex's 2026-04-27 review
-                // flagged as a stack-asymmetric measurement bias on the W0 baseline.
-                // E2E is unchanged either way (same total residency = tokens × itlMs);
-                // the alignment only affects TTFT.
+                // Flux.range(...).concatMap(i -> Mono.delay(itlMs)) shape. Without
+                // this leading delay, async would emit token_0 immediately and
+                // produce a TTFT measurement bias relative to reactive on the W0
+                // baseline. E2E is unchanged either way (same total residency =
+                // tokens × itlMs); the alignment only affects TTFT.
                 for (int i = 0; i < tokens; i++) {
                     Thread.sleep(itlMs);
                     emitter.send(SseEmitter.event().data("token_" + i));
@@ -195,10 +194,9 @@ public class AiController {
             // AT or AFTER the trigger position. Reactive's concatMap injects when
             // it observes the token at `position == injectAt`, so a stream of
             // exactly `toolCallAfterTokens` tokens (positions 0..injectAt-1) never
-            // triggers the tool there. Without `stream.hasNext()`, async would
-            // fire an end-of-stream blocking tool call in that boundary case while
-            // reactive emitted no tool — preserving the old cross-stack divergence
-            // for short real-LM completions and skewing W2 tool/p99 metrics.
+            // triggers the tool there. The `stream.hasNext()` guard keeps async on
+            // the same boundary: otherwise async would emit a boundary-case tool
+            // call while reactive would not.
             if (emitted >= toolCallAfterTokens && stream.hasNext()) {
                 long toolStart = System.nanoTime();
                 UserDto user = userClient.getUserSummary(userId);

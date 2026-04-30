@@ -1,12 +1,18 @@
-// Gateway image filter benchmark.
-// This is the CPU-bound workload that uploads an image for processing.
+// Tweet-service image filter benchmark.
+// This is the CPU-bound workload that uploads an image for processing
+// (rotate / sharpen / etc.) on tweet-service. Like every other k6 workload
+// in this directory, it hits the SERVICE DIRECTLY (port 9092), bypassing
+// the gateway: there is no `/media/**` route on the gateway, and the
+// gateway's JWT filter would reject the unauthenticated POST anyway.
+// The benchmark intentionally measures pure tweet-service CPU work, not
+// gateway routing or JWT-validation overhead.
 
 import http from 'k6/http';
 import { Trend, Counter } from 'k6/metrics';
 import exec from 'k6/execution';
 import { sleep } from 'k6';
 
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:9092';
 const API_PATH = __ENV.API_PATH || '/media/filter';
 const CONCURRENCY = Number(__ENV.CONCURRENCY || 8);
 const WARMUP_SECS = __ENV.WARMUP_SECS || '60s';

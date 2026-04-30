@@ -19,7 +19,7 @@ Important:
 - the magic Maven flag is mandatory: `-Dspring-boot.run.optimizedLaunch=false`
 - the magic local JVM heap flags are mandatory: `JAVA_TOOL_OPTIONS="-Xms4g -Xmx4g -XX:+AlwaysPreTouch"`
 - Docker is only for infra in this cookbook
-- the benchmark runner is now `./run.sh bench k6`
+- the benchmark runner: `./run.sh bench k6`
 - benchmark payloads are generated under gitignored `testing/performance/k6/payload/`
 
 ## Clean Start Tomorrow Morning
@@ -235,14 +235,14 @@ Async:
 - avg `39.32 ms`
 - p95 `46.64 ms`
 
-## Paper Reference Numbers
+## Reference result — caching workload at 1000 users
 
-Reactive paper:
+Reactive:
 - `45641 req/s`
 - avg `28.87 ms`
 - p95 `45.39 ms`
 
-Async paper:
+Async:
 - `26724 req/s`
 - avg `49.80 ms`
 - p95 `84.02 ms`

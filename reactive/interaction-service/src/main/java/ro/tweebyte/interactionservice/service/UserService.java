@@ -18,7 +18,8 @@ public class UserService {
 
     private final UserClient userClient;
     private final ReactiveRedisTemplate<String, byte[]> redisTemplate;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    // register JSR310 module (LocalDateTime support). See TweetService note.
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     public Mono<UserDto> getUserSummary(UUID userId) {
         String key = USER_SUMMARY_KEY_PREFIX + userId;

@@ -58,7 +58,7 @@ public class UserMapperImpl extends UserMapper {
     }
 
     @Override
-    public void mapRequestToEntity(UserUpdateRequest request, UserEntity entity) {
+    protected void copyRequestFieldsToEntity(UserUpdateRequest request, UserEntity entity) {
         if (request == null) {
             return;
         }
@@ -71,6 +71,9 @@ public class UserMapperImpl extends UserMapper {
         }
         if (request.getPassword() != null) {
             entity.setPassword(request.getPassword());
+        }
+        if (request.getBiography() != null) {
+            entity.setBiography(request.getBiography());
         }
         if (request.getIsPrivate() != null) {
             entity.setIsPrivate(request.getIsPrivate());

@@ -10,4 +10,11 @@ class InteractionServiceApplicationTests {
     void contextLoads() {
     }
 
+    @Test
+    void main() {
+        // boots the application
+        // entry-point so SpringApplication.run wiring is exercised.
+        InteractionServiceApplication.main(new String[] {});
+    }
+
 }

@@ -28,8 +28,12 @@ services:
       SERVER_PORT: "9091"
       DB_HOST: user-service-db
       DB_PORT: "5432"
-      TWEET_SERVICE_URL: http://tweet-service:9092
-      INTERACTION_SERVICE_URL: http://interaction-service:9093
+      # Trailing slashes required: reactive WebClient's URI builder leaves a
+      # malformed URL (e.g. http://host:9093recommendations/...) when the
+      # base URL has no trailing slash and the path starts with one. Fixed
+      # — same convention as async.yml.
+      TWEET_SERVICE_URL: http://tweet-service:9092/
+      INTERACTION_SERVICE_URL: http://interaction-service:9093/
       SPRING_PROFILES_ACTIVE: ${STACK_PROFILE:-}
     depends_on:
       user_service_db:
@@ -48,8 +52,8 @@ services:
       DB_PORT: "5432"
       CACHE_HOST: redis
       CACHE_PORT: "6379"
-      USER_SERVICE_URL: http://user-service:9091
-      INTERACTION_SERVICE_URL: http://interaction-service:9093
+      USER_SERVICE_URL: http://user-service:9091/
+      INTERACTION_SERVICE_URL: http://interaction-service:9093/
       SPRING_PROFILES_ACTIVE: ${STACK_PROFILE:-}
       AI_BACKEND: ${AI_BACKEND:-mock}
       # Live-LLM connection knobs. For the §5.13 realism subset, set
@@ -96,8 +100,8 @@ services:
       DB_PORT: "5432"
       CACHE_HOST: ${INTERACTION_CACHE_HOST:-redis}
       CACHE_PORT: ${INTERACTION_CACHE_PORT:-6379}
-      USER_SERVICE_URL: http://user-service:9091
-      TWEET_SERVICE_URL: http://tweet-service:9092
+      USER_SERVICE_URL: http://user-service:9091/
+      TWEET_SERVICE_URL: http://tweet-service:9092/
       SPRING_PROFILES_ACTIVE: ${STACK_PROFILE:-}
       JAVA_TOOL_OPTIONS: ${INTERACTION_JAVA_TOOL_OPTIONS:-}
     depends_on:

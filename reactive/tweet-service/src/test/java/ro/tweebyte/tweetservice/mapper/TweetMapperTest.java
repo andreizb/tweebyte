@@ -261,6 +261,54 @@ class TweetMapperTest {
     }
 
     @Test
+    void testMapEntityToDto_NullEntityReturnsNull() {
+        assertNull(tweetMapper.mapEntityToDto((TweetEntity) null));
+    }
+
+    @Test
+    void testMapCreationRequestToTweetEntity_NullRequestReturnsNull() throws Exception {
+        java.lang.reflect.Method m = TweetMapper.class
+                .getDeclaredMethod("mapCreationRequestToTweetEntity", TweetCreationRequest.class);
+        m.setAccessible(true);
+        Object result = m.invoke(tweetMapper, (TweetCreationRequest) null);
+        assertNull(result);
+    }
+
+    @Test
+    void testMapUpdateRequestToEntity_NullRequestReturnsEntityUnchanged() {
+        TweetEntity entity = new TweetEntity();
+        entity.setContent("kept");
+        TweetEntity result = tweetMapper.mapUpdateRequestToEntity(null, entity);
+        assertEquals("kept", result.getContent());
+    }
+
+    @Test
+    void testMapEntityToDtoSevenArgsTopReply_NullMentionsAndHashtags() {
+        TweetEntity tweetEntity = new TweetEntity();
+        tweetEntity.setId(UUID.randomUUID());
+        tweetEntity.setContent("c");
+        tweetEntity.setCreatedAt(LocalDateTime.now());
+        TweetDto dto = tweetMapper.mapEntityToDto(tweetEntity, 1L, 2L, 3L,
+                new ReplyDto(), null, null);
+        assertNotNull(dto);
+        assertNull(dto.getMentions());
+        assertNull(dto.getHashtags());
+    }
+
+    @Test
+    void testMapEntityToDtoSevenArgsReplies_NullMentionsAndHashtags() {
+        TweetEntity tweetEntity = new TweetEntity();
+        tweetEntity.setId(UUID.randomUUID());
+        tweetEntity.setContent("c");
+        tweetEntity.setCreatedAt(LocalDateTime.now());
+        TweetDto dto = tweetMapper.mapEntityToDto(tweetEntity, 1L, 2L, 3L,
+                Collections.<ReplyDto>emptyList(), null, null);
+        assertNotNull(dto);
+        assertNull(dto.getMentions());
+        assertNull(dto.getHashtags());
+    }
+
+    @Test
     void testMapEntityToDto_WithLikesRepliesRetweetsMentionsHashtagsAndReplies() {
         // Given
         TweetEntity tweetEntity = new TweetEntity();

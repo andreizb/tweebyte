@@ -36,17 +36,17 @@ public class ReportCommand implements Callable<Integer> {
     double alpha;
 
     @CommandLine.Option(names = "--include-status",
-            defaultValue = "OK,LEGACY-NO-VALIDATION",
+            defaultValue = "OK,NO_VALIDATION_SIDECAR",
             description = "Comma-separated list of cell_status values to include in the report. Runs whose "
                     + "cell_status is not in this list are dropped from aggregates entirely (they still appear "
-                    + "in runs.csv). Default keeps OK runs and pre-2026-04-28 runs that predate the validation "
-                    + "sidecar. Set to e.g. 'OK' for a strict manuscript export, or 'OK,LEGACY-NO-VALIDATION,"
-                    + "CONTAMINATED' to include everything.")
+                    + "in runs.csv). Default keeps OK runs and runs without a validation sidecar "
+                    + "(NO_VALIDATION_SIDECAR). Set to e.g. 'OK' for a strict OK-only export, or "
+                    + "'OK,NO_VALIDATION_SIDECAR,CONTAMINATED' to include everything.")
     String includeStatus;
 
     @CommandLine.Option(names = "--filter-campaign",
             description = "Optional comma-separated list of campaign labels. When set, only runs whose "
-                    + "campaign appears in the list contribute to the report. Use to produce a manuscript-only "
+                    + "campaign appears in the list contribute to the report. Use to produce a single-campaign "
                     + "cells.csv from a single campaign without changing the runs.csv schema.")
     String filterCampaign;
 
@@ -146,8 +146,8 @@ public class ReportCommand implements Callable<Integer> {
     private void runHeadlineTests(Map<String, List<RunResult>> byCell) {
         // Pair every async cell against every reactive cell that shares the load shape
         // (workload, transport, target_rps, cancel_rate, calibration_tag, campaign).
-        // Campaign added 2026-04-28 so headline-5rep cells don't pair against
-        // diagonal cells that happen to share the same load shape.
+        // Campaign is part of the matching key so campaign-scoped cells do not
+        // pair with other campaign slices that share the same load shape.
         TTest tTest = new TTest();
         MannWhitneyUTest mw = new MannWhitneyUTest();
 
@@ -253,8 +253,8 @@ public class ReportCommand implements Callable<Integer> {
                 String rejectPolicy = f[idx++];
                 double cancelRate = Double.parseDouble(emptyTo(f[idx++], "0"));
                 String calibrationTag = hasCalibration ? f[idx++] : "";
-                String campaign = hasCampaign ? f[idx++] : "pre-cleanup-pilot-2026-04-27";
-                String cellStatus = hasCampaign ? f[idx++] : "LEGACY-NO-VALIDATION";
+                String campaign = hasCampaign ? f[idx++] : "early-pilot-2026-04-27";
+                String cellStatus = hasCampaign ? f[idx++] : "NO_VALIDATION_SIDECAR";
                 long requests = Long.parseLong(emptyTo(f[idx++], "0"));
                 long errors = Long.parseLong(emptyTo(f[idx++], "0"));
                 long cancels = Long.parseLong(emptyTo(f[idx++], "0"));

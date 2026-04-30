@@ -95,6 +95,50 @@ class MockCalibrationTest {
     }
 
     @Test
+    void onlyMuMissingFallsBackToDefaults(@TempDir Path tmp) throws Exception {
+        Path bad = tmp.resolve("only-mu-missing.json");
+        Files.writeString(bad,
+                "{\"ttft_fits\":{\"lognormal\":{\"sigma\":0.6}}," +
+                " \"itl_fits\":{\"gamma\":{\"shape\":3.0,\"scale\":20.0}}}");
+        MockCalibration cal = MockCalibration.loadOrDefault(bad.toString(),
+                TTFT, SIGMA, ITL, SHAPE, P_BURST);
+        assertEquals("defaults:json-incomplete", cal.source());
+    }
+
+    @Test
+    void onlySigmaMissingFallsBackToDefaults(@TempDir Path tmp) throws Exception {
+        Path bad = tmp.resolve("only-sigma-missing.json");
+        Files.writeString(bad,
+                "{\"ttft_fits\":{\"lognormal\":{\"mu\":5.5}}," +
+                " \"itl_fits\":{\"gamma\":{\"shape\":3.0,\"scale\":20.0}}}");
+        MockCalibration cal = MockCalibration.loadOrDefault(bad.toString(),
+                TTFT, SIGMA, ITL, SHAPE, P_BURST);
+        assertEquals("defaults:json-incomplete", cal.source());
+    }
+
+    @Test
+    void onlyShapeMissingFallsBackToDefaults(@TempDir Path tmp) throws Exception {
+        Path bad = tmp.resolve("only-shape-missing.json");
+        Files.writeString(bad,
+                "{\"ttft_fits\":{\"lognormal\":{\"mu\":5.5,\"sigma\":0.6}}," +
+                " \"itl_fits\":{\"gamma\":{\"scale\":20.0}}}");
+        MockCalibration cal = MockCalibration.loadOrDefault(bad.toString(),
+                TTFT, SIGMA, ITL, SHAPE, P_BURST);
+        assertEquals("defaults:json-incomplete", cal.source());
+    }
+
+    @Test
+    void onlyScaleMissingFallsBackToDefaults(@TempDir Path tmp) throws Exception {
+        Path bad = tmp.resolve("only-scale-missing.json");
+        Files.writeString(bad,
+                "{\"ttft_fits\":{\"lognormal\":{\"mu\":5.5,\"sigma\":0.6}}," +
+                " \"itl_fits\":{\"gamma\":{\"shape\":3.0}}}");
+        MockCalibration cal = MockCalibration.loadOrDefault(bad.toString(),
+                TTFT, SIGMA, ITL, SHAPE, P_BURST);
+        assertEquals("defaults:json-incomplete", cal.source());
+    }
+
+    @Test
     void pBurstClampedToUnitInterval(@TempDir Path tmp) throws Exception {
         Path tooHigh = tmp.resolve("high.json");
         Files.writeString(tooHigh,

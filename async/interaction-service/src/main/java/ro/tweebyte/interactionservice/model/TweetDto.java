@@ -61,7 +61,10 @@ public class TweetDto implements Serializable {
     @JsonIgnoreProperties(ignoreUnknown = true)
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     @Builder
-    public static class MentionDto {
+    // Implements Serializable so the enclosing TweetDto stays JDK-serialisable
+    // when Spring's RedisCacheManager (used by @Cacheable on TweetService)
+    // writes it to Redis.
+    public static class MentionDto implements Serializable {
 
         @JsonProperty(value = "id")
         private UUID id;
@@ -80,7 +83,8 @@ public class TweetDto implements Serializable {
     @JsonIgnoreProperties(ignoreUnknown = true)
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     @Builder
-    public static class HashtagDto {
+    // Same Serializable contract as MentionDto above.
+    public static class HashtagDto implements Serializable {
 
         @JsonProperty(value = "id")
         private UUID id;

@@ -10,7 +10,7 @@
     <description>Ingests k6 AI-streaming benchmark result directories, computes
         per-cell bootstrap CIs on per-run p99, runs Welch's t-test +
         Mann-Whitney U for headline comparisons, emits PNG figures via XChart
-        and CSVs for pgfplots / LaTeX.</description>
+        and plot-ready CSVs.</description>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

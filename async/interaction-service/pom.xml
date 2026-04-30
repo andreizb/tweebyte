@@ -63,7 +63,7 @@
       <dependency>
          <groupId>org.projectlombok</groupId>
          <artifactId>lombok</artifactId>
-         <version>1.18.34</version>
+         <version>1.18.30</version>
       </dependency>
       <dependency>
          <groupId>org.mapstruct</groupId>
@@ -101,7 +101,43 @@
          <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-compiler-plugin</artifactId>
-            <version>3.13.0</version>
+            <version>3.12.1</version>
+            <configuration>
+               <!-- Emit method-parameter names into bytecode so SpEL in
+                    @Cacheable(key="#tweetId") resolves the named arg at runtime.
+                    Without this, getTweetSummary(UUID tweetId)'s cache key is null
+                    and Spring throws "Null key returned for cache operation". -->
+               <parameters>true</parameters>
+            </configuration>
+         </plugin>
+
+         <!-- JaCoCo: line + branch coverage reporting; see testing/equivalence/ for FE flow. -->
+         <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <version>0.8.12</version>
+            <executions>
+               <execution>
+                  <id>prepare-agent</id>
+                  <goals><goal>prepare-agent</goal></goals>
+               </execution>
+               <execution>
+                  <id>report</id>
+                  <phase>verify</phase>
+                  <goals><goal>report</goal></goals>
+               </execution>
+            </executions>
+            <configuration>
+               <excludes>
+                  <exclude>**/*MapperImpl.class</exclude>
+                  <exclude>**/*Application.class</exclude>
+                  <!-- Coverage exclusions: DTO/entity/exception/config. -->
+                  <exclude>**/config/**</exclude>
+                  <exclude>**/exception/**</exclude>
+                  <exclude>**/model/**</exclude>
+                  <exclude>**/entity/**</exclude>
+               </excludes>
+            </configuration>
          </plugin>
       </plugins>
    </build>

@@ -34,7 +34,8 @@ public class RecommendationService {
     private final LikeService likeService;
     private final RetweetService retweetService;
     private final ReactiveRedisTemplate<String, String> redisTemplate;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    // register JSR310 module (LocalDateTime support). See TweetService note.
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @Lazy
     @Resource(name = "recommendationService")
@@ -68,7 +69,11 @@ public class RecommendationService {
                         .flatMapMany(Flux::fromIterable));
     }
 
-    public Map<UUID, Double> fetchPopularUsers() {
+    // Returns a Mono so the caller can compose it via flatMapMany — required
+    // because WebFlux's Netty event loop forbids blocking calls and would
+    // surface "block()/blockFirst()/blockLast() are blocking, which is not
+    // supported in thread reactor-tcp-nio-N" if any subscription chain blocked here.
+    public Mono<Map<UUID, Double>> fetchPopularUsers() {
         return redisTemplate.opsForValue().get(POPULAR_USERS_KEY)
                 .map(json -> {
                     try {
@@ -85,7 +90,7 @@ public class RecommendationService {
                             } catch (JsonProcessingException e) {
                                 throw new RuntimeException(e);
                             }
-                        })).block();
+                        }));
     }
 
     public Flux<TweetDto.HashtagDto> fetchPopularHashtags() {
@@ -106,8 +111,9 @@ public class RecommendationService {
                             .map(FollowEntity::getFollowedId)
                             .distinct();
 
-                    Flux<UUID> popularUsersFlux = Flux.fromIterable(fetchPopularUsers()
-                            .keySet())
+                    // composed via flatMapMany so fetchPopularUsers stays non-blocking.
+                    Flux<UUID> popularUsersFlux = fetchPopularUsers()
+                            .flatMapMany(popularUsers -> Flux.fromIterable(popularUsers.keySet()))
                             .filter(popularId -> !followedIds.contains(popularId));
 
                     return Flux.concat(recommendationsFlux, popularUsersFlux)

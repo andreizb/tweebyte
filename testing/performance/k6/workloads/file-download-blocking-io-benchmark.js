@@ -1,4 +1,4 @@
-// Legacy blocking file-download benchmark.
+// Blocking file-download benchmark.
 // This represents the blocking-I/O workload shape kept for comparison.
 
 import http from 'k6/http';

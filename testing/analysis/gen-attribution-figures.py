@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the attribution figure(s) the §5.12 manuscript section needs.
+"""Generate the attribution figure(s) referenced in RESULTS.md §5.12.
 
 Reads each cell's <c>_<i>_prom.csv (in-run Prometheus time-series) under
 testing-results/performance/k6/results_*/ and produces:

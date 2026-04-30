@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class UserRegisterRequestTest {
 
@@ -102,6 +103,47 @@ class UserRegisterRequestTest {
         UserRegisterRequest userRegisterRequest = new UserRegisterRequest();
         userRegisterRequest.setBirthDate(birthDate);
         assertEquals(birthDate, userRegisterRequest.getBirthDate());
+    }
+
+    @Test
+    void testAllArgsConstructor() {
+        // Reactive UserRegisterRequest field order: userName, email, biography, password, birthDate, isPrivate.
+        LocalDate birthDate = LocalDate.of(1990, 1, 1);
+        UserRegisterRequest request = new UserRegisterRequest(
+                "testUser",
+                "test@example.com",
+                "This is a biography",
+                "securePassword123",
+                birthDate,
+                true
+        );
+
+        assertEquals("testUser", request.getUserName());
+        assertEquals("test@example.com", request.getEmail());
+        assertEquals("This is a biography", request.getBiography());
+        assertTrue(request.getIsPrivate());
+        assertEquals("securePassword123", request.getPassword());
+        assertEquals(birthDate, request.getBirthDate());
+    }
+
+    @Test
+    void testBuilder() {
+        LocalDate birthDate = LocalDate.of(1990, 1, 1);
+        UserRegisterRequest request = UserRegisterRequest.builder()
+                .userName("testUser")
+                .email("test@example.com")
+                .biography("This is a biography")
+                .isPrivate(true)
+                .password("securePassword123")
+                .birthDate(birthDate)
+                .build();
+
+        assertEquals("testUser", request.getUserName());
+        assertEquals("test@example.com", request.getEmail());
+        assertEquals("This is a biography", request.getBiography());
+        assertTrue(request.getIsPrivate());
+        assertEquals("securePassword123", request.getPassword());
+        assertEquals(birthDate, request.getBirthDate());
     }
 
 }

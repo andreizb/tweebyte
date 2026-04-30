@@ -70,15 +70,24 @@ public class UserMapper {
     public UserEntity mapRequestToEntity(ro.tweebyte.userservice.model.UserRegisterRequest request) {
         if (request == null)
             return null;
+        // mark isInsertable=true so R2DBC's save() does INSERT. UserEntity
+        // implements Persistable; isNew() returns (isInsertable || id == null).
+        // Without this flag, the client-generated UUID makes Spring Data treat
+        // the new row as an existing entity → UPDATE affecting 0 rows → register fails.
         return UserEntity.builder()
                 .userName(request.getUserName())
                 .email(request.getEmail())
                 .biography(request.getBiography())
                 .password(passwordEncoder.encode(request.getPassword()))
                 .birthDate(request.getBirthDate())
-                .isPrivate(request.getIsPrivate())
+                // default isPrivate=false when the request doesn't supply it.
+                // The users.is_private column is NOT NULL; without this default
+                // INSERT fails. Async stack already defaults to false here —
+                // this restores per-stack symmetry.
+                .isPrivate(request.getIsPrivate() != null ? request.getIsPrivate() : Boolean.FALSE)
                 .id(UUID.randomUUID())
                 .createdAt(LocalDateTime.now())
+                .isInsertable(true)
                 .build();
     }
 }

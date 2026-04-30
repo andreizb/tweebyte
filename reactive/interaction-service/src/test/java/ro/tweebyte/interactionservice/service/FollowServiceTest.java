@@ -191,4 +191,59 @@ public class FollowServiceTest {
                 .verifyComplete();
     }
 
+    @Test
+    public void getFollowing_Success_CacheHit() {
+        // cache hit returns the
+        // bytes directly without hitting the repository.
+        byte[] cached = new byte[] { 1, 2, 3 };
+        when(valueOperations.get(anyString())).thenReturn(Mono.just(cached));
+
+        StepVerifier.create(followService.getFollowing(userId, "authToken"))
+                .expectNext(cached)
+                .verifyComplete();
+
+        verify(valueOperations).get(anyString());
+    }
+
+    @Test
+    public void getFollowRequests_Success() {
+        // Pending requests
+        // for a user are mapped via FollowMapper.mapEntityToDto.
+        FollowEntity pending = new FollowEntity();
+        pending.setStatus("PENDING");
+        FollowDto pendingDto = new FollowDto();
+        pendingDto.setStatus(Status.PENDING);
+
+        when(followRepository.findByFollowedIdAndStatusOrderByCreatedAtDesc(any(UUID.class), eq("PENDING")))
+                .thenReturn(Flux.just(pending));
+        when(followMapper.mapEntityToDto(pending)).thenReturn(pendingDto);
+
+        StepVerifier.create(followService.getFollowRequests(userId))
+                .expectNext(pendingDto)
+                .verifyComplete();
+
+        verify(followRepository).findByFollowedIdAndStatusOrderByCreatedAtDesc(eq(userId), eq("PENDING"));
+        verify(followMapper).mapEntityToDto(pending);
+    }
+
+    @Test
+    public void updateFollowRequest_NotFound_ShouldError() {
+        // updateFollowRequest must throw on unknown / non-PENDING input;
+        // unknown follow-request id surfaces a FollowNotFoundException error signal.
+        UUID followRequestId = UUID.randomUUID();
+        UUID requestingUserId = UUID.randomUUID();
+
+        when(followRepository.findById(followRequestId)).thenReturn(Mono.empty());
+        // doFinally runs even on error; cacheManager.getCache must not return null.
+        Cache mockCache = mock(Cache.class);
+        when(cacheManager.getCache("follow_recommendations")).thenReturn(mockCache);
+
+        StepVerifier.create(followService.updateFollowRequest(requestingUserId, followRequestId, Status.ACCEPTED))
+                .expectError(ro.tweebyte.interactionservice.exception.FollowNotFoundException.class)
+                .verify();
+
+        verify(followRepository).findById(followRequestId);
+        verify(followRepository, never()).save(any(FollowEntity.class));
+    }
+
 }

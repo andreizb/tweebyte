@@ -57,7 +57,8 @@ public class TweetClient {
 
     public Flux<TweetDto.HashtagDto> getPopularHashtags() {
         return webClient.get()
-            .uri(uriBuilder -> uriBuilder.path("tweets/hashtags/popular").build())
+            // tweet-service maps `/tweets/hashtag/popular` (singular).
+            .uri(uriBuilder -> uriBuilder.path("tweets/hashtag/popular").build())
             .retrieve()
             .bodyToFlux(TweetDto.HashtagDto.class)
             .onErrorMap(InteractionException::new);

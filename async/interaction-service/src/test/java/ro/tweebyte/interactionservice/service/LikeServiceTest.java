@@ -117,7 +117,9 @@ class LikeServiceTest {
 
     @Test
     void testLikeReply() throws ExecutionException, InterruptedException {
-        when(replyRepository.findByIdAndUserId(replyId, userId)).thenReturn(Optional.of(new ReplyEntity()));
+        // production switched from findByIdAndUserId(replyId, userId)
+        // to findById(replyId) so any user can like any reply.
+        when(replyRepository.findById(replyId)).thenReturn(Optional.of(new ReplyEntity()));
         when(likeMapper.mapRequestToEntity(userId, replyId, LikeEntity.LikeableType.REPLY))
             .thenReturn(new LikeEntity());
         when(likeRepository.save(any(LikeEntity.class))).thenReturn(new LikeEntity());
@@ -125,7 +127,7 @@ class LikeServiceTest {
 
         var result = likeService.likeReply(userId, replyId).get();
 
-        verify(replyRepository).findByIdAndUserId(replyId, userId);
+        verify(replyRepository).findById(replyId);
         verify(likeRepository).save(any(LikeEntity.class));
         verify(likeMapper).mapEntityToDto(any(LikeEntity.class));
         assertNotNull(result);

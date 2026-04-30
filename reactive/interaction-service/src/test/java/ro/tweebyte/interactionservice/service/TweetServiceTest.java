@@ -54,4 +54,43 @@ class TweetServiceTest {
 		verify(valueOperations).set(eq(key), any(byte[].class));
 	}
 
+	@Test
+	void getUserTweetsSummary_CacheMiss() {
+		// When no cached
+		// list bytes, fetches via TweetClient and pushes each tweet onto the list.
+		UUID userId = UUID.randomUUID();
+		String key = "user_tweets:" + userId;
+		TweetDto tweetDto = new TweetDto();
+		when(listOperations.range(eq(key), eq(0L), eq(-1L))).thenReturn(Flux.empty());
+		when(tweetClient.getUserTweetsSummary(userId)).thenReturn(Flux.just(tweetDto));
+		when(listOperations.rightPush(eq(key), any(byte[].class))).thenReturn(Mono.just(1L));
+
+		Flux<TweetDto> result = tweetService.getUserTweetsSummary(userId);
+
+		StepVerifier.create(result)
+				.expectNext(tweetDto)
+				.verifyComplete();
+		verify(tweetClient).getUserTweetsSummary(userId);
+		verify(listOperations).rightPush(eq(key), any(byte[].class));
+	}
+
+	@Test
+	void getPopularHashtags_CacheMiss() {
+		// When the popular
+		// hashtags list is empty, fetches via TweetClient and pushes each hashtag.
+		String key = "popular_hashtags:";
+		TweetDto.HashtagDto hashtag = new TweetDto.HashtagDto();
+		when(listOperations.range(eq(key), eq(0L), eq(-1L))).thenReturn(Flux.empty());
+		when(tweetClient.getPopularHashtags()).thenReturn(Flux.just(hashtag));
+		when(listOperations.rightPush(eq(key), any(byte[].class))).thenReturn(Mono.just(1L));
+
+		Flux<TweetDto.HashtagDto> result = tweetService.getPopularHashtags();
+
+		StepVerifier.create(result)
+				.expectNext(hashtag)
+				.verifyComplete();
+		verify(tweetClient).getPopularHashtags();
+		verify(listOperations).rightPush(eq(key), any(byte[].class));
+	}
+
 }

@@ -95,6 +95,56 @@ class MockCalibrationTest {
     }
 
     @Test
+    void incompleteJson_MuMissing_FallsBackToDefaults(@TempDir Path tmp) throws Exception {
+        // sigma present, mu missing -> mu is NaN; covers the first disjunct of the missing-field guard.
+        Path bad = tmp.resolve("noMu.json");
+        Files.writeString(bad,
+                "{\"ttft_fits\":{\"lognormal\":{\"sigma\":0.5}}," +
+                " \"itl_fits\":{\"gamma\":{\"shape\":2.0,\"scale\":10.0}}}");
+        MockCalibration cal = MockCalibration.loadOrDefault(bad.toString(),
+                TTFT, SIGMA, ITL, SHAPE, P_BURST);
+        assertEquals("defaults:json-incomplete", cal.source());
+    }
+
+    @Test
+    void incompleteJson_ShapeMissing_FallsBackToDefaults(@TempDir Path tmp) throws Exception {
+        Path bad = tmp.resolve("noShape.json");
+        Files.writeString(bad,
+                "{\"ttft_fits\":{\"lognormal\":{\"mu\":5.0,\"sigma\":0.5}}," +
+                " \"itl_fits\":{\"gamma\":{\"scale\":10.0}}}");
+        MockCalibration cal = MockCalibration.loadOrDefault(bad.toString(),
+                TTFT, SIGMA, ITL, SHAPE, P_BURST);
+        assertEquals("defaults:json-incomplete", cal.source());
+    }
+
+    @Test
+    void incompleteJson_ScaleMissing_FallsBackToDefaults(@TempDir Path tmp) throws Exception {
+        Path bad = tmp.resolve("noScale.json");
+        Files.writeString(bad,
+                "{\"ttft_fits\":{\"lognormal\":{\"mu\":5.0,\"sigma\":0.5}}," +
+                " \"itl_fits\":{\"gamma\":{\"shape\":2.0}}}");
+        MockCalibration cal = MockCalibration.loadOrDefault(bad.toString(),
+                TTFT, SIGMA, ITL, SHAPE, P_BURST);
+        assertEquals("defaults:json-incomplete", cal.source());
+    }
+
+    @Test
+    void pBurstNaNClampedToZero(@TempDir Path tmp) throws Exception {
+        // p_burst = "NaN" in JSON -> Jackson asDouble(0.0) returns 0.0 if not parseable,
+        // so we use a non-numeric sentinel that triggers the NaN branch via the helper:
+        // explicitly inject NaN through clampPBurst by using a value that maps to NaN.
+        // Easiest path: provide a non-numeric default through reflection by simulating
+        // a JSON that yields a parsed double NaN. Jackson's asDouble doesn't return NaN
+        // unless the field is a real NaN literal — most JVMs reject "NaN" without quotes
+        // depending on parser leniency, so we pass an explicit NaN via the defaults path.
+        MockCalibration cal = MockCalibration.loadOrDefault(null, TTFT, SIGMA, ITL, SHAPE,
+                Double.NaN);
+        // defaultsWithSource routes through clampPBurst -> NaN -> 0.0.
+        assertEquals(0.0, cal.itlPBurst(), 1e-9);
+        assertEquals("defaults:property-unset", cal.source());
+    }
+
+    @Test
     void pBurstClampedToUnitInterval(@TempDir Path tmp) throws Exception {
         Path tooHigh = tmp.resolve("high.json");
         Files.writeString(tooHigh,

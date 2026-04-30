@@ -90,6 +90,24 @@ class MockStreamingChatModelTest {
     }
 
     @Test
+    void pBurstNaNAtConstructorClampedToZero() {
+        // clampPBurst NaN branch.
+        MockStreamingChatModel m = new MockStreamingChatModel(1.0, 0.2, 1.0, 2.0, Double.NaN, TOKENS);
+        assertEquals(0.0, m.getItlPBurst(), 1e-9);
+    }
+
+    @Test
+    void streamWithSmallPBurstExercisesBothInnerBranches() {
+        // pBurst > 0 but small enough that nextDouble() falls on either side often.
+        // Running enough tokens makes the false inner-branch (no burst, sample gamma)
+        // get hit deterministically across draws.
+        MockStreamingChatModel m = new MockStreamingChatModel(1.0, 0.2, 1.0, 2.0, 0.5, 200);
+        List<ChatResponse> chunks = m.stream(new Prompt(new UserMessage("hi")))
+                .collectList().block();
+        assertNotNull(chunks);
+        assertEquals(200, chunks.size());
+    }
+    @Test
     void streamWithPBurst1EmitsAllTokensWithoutGapDelay() {
         MockStreamingChatModel m = new MockStreamingChatModel(1.0, 0.2, 1.0, 2.0, 1.0, TOKENS);
         List<ChatResponse> chunks = m.stream(new Prompt(new UserMessage("hi")))

@@ -87,10 +87,25 @@ public class RetweetServiceTest {
 
     @Test
     public void deleteRetweet_Success() {
+        // deleteRetweet does findById + switchIfEmpty + flatMap(deleteById),
+        // so the test stubs both findById (so the flatMap fires) and deleteById.
+        when(retweetRepository.findById(any(UUID.class)))
+            .thenReturn(Mono.just(retweetEntity));
         when(retweetRepository.deleteById(any(UUID.class)))
             .thenReturn(Mono.empty());
         StepVerifier.create(retweetService.deleteRetweet(retweetId, userId))
             .verifyComplete();
+    }
+
+    @Test
+    public void deleteRetweet_NotFound_RaisesError() {
+        // Missing-id path raises IllegalArgumentException instead of completing
+        // silently, so the controller surfaces a non-2xx.
+        when(retweetRepository.findById(any(UUID.class)))
+            .thenReturn(Mono.empty());
+        StepVerifier.create(retweetService.deleteRetweet(retweetId, userId))
+            .expectErrorMatches(t -> t instanceof IllegalArgumentException)
+            .verify();
     }
 
     @Test

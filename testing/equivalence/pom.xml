@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Functional-Equivalence test module.
+
+  Drives Cucumber scenarios against a live, full-stack Tweebyte deployment
+  (gateway + user/tweet/interaction services + Postgres x3 + Redis) running
+  in Docker via the `fe-test` compose profile. Same .feature files run on
+  both stacks; profile selects which compose layer comes up:
+
+      mvn -f testing/equivalence/pom.xml verify -Pasync
+      mvn -f testing/equivalence/pom.xml verify -Preactive
+
+  (`mvn -pl testing/equivalence …` does not work from the repo root because
+  there is no parent reactor POM; use the `-f` form, or `cd testing/equivalence`
+  first.)
+
+  ZERO impact on the prod / benchmark paths — see ../../infrastructure/run.sh
+  and ../../infrastructure/compose/fe-test.yml for the isolation guarantees.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>ro.tweebyte.testing</groupId>
+    <artifactId>equivalence</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>tweebyte-equivalence</name>
+    <description>Cross-stack functional-equivalence Cucumber suite</description>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <cucumber.version>7.18.1</cucumber.version>
+        <junit.platform.version>1.10.3</junit.platform.version>
+        <junit.jupiter.version>5.10.3</junit.jupiter.version>
+        <jackson.version>2.17.2</jackson.version>
+        <jacoco.version>0.8.12</jacoco.version>
+        <postgresql.version>42.7.3</postgresql.version>
+        <slf4j.version>2.0.13</slf4j.version>
+        <!-- Default stack target — overridden by -Pasync / -Preactive. -->
+        <fe.stack>async</fe.stack>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-java</artifactId>
+            <version>${cucumber.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-junit-platform-engine</artifactId>
+            <version>${cucumber.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-suite</artifactId>
+            <version>${junit.platform.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>${postgresql.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- JaCoCo agent jar made available on disk so the fe-test compose
+             overlay can bind-mount it into each service container. -->
+        <dependency>
+            <groupId>org.jacoco</groupId>
+            <artifactId>org.jacoco.agent</artifactId>
+            <version>${jacoco.version}</version>
+            <classifier>runtime</classifier>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <testResources>
+            <testResource>
+                <directory>src/test/resources</directory>
+                <filtering>false</filtering>
+            </testResource>
+        </testResources>
+
+        <plugins>
+            <!-- Extract the JaCoCo agent JAR so fe-test.yml can bind-mount it. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.6.1</version>
+                <executions>
+                    <execution>
+                        <id>extract-jacoco-agent</id>
+                        <phase>process-test-resources</phase>
+                        <goals><goal>copy</goal></goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>org.jacoco</groupId>
+                                    <artifactId>org.jacoco.agent</artifactId>
+                                    <version>${jacoco.version}</version>
+                                    <classifier>runtime</classifier>
+                                    <type>jar</type>
+                                    <destFileName>jacoco-agent.jar</destFileName>
+                                </artifactItem>
+                            </artifactItems>
+                            <outputDirectory>${project.build.directory}</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Cucumber scenarios run via the JUnit Platform Suite under failsafe (verify phase). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <includes>
+                        <include>**/RunCucumberTest.java</include>
+                    </includes>
+                    <systemPropertyVariables>
+                        <fe.stack>${fe.stack}</fe.stack>
+                        <fe.repo.root>${project.basedir}/../..</fe.repo.root>
+                        <fe.gateway.base.url>http://localhost:8080</fe.gateway.base.url>
+                    </systemPropertyVariables>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Skip surefire (we have no unit tests in this module — only IT via failsafe). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <skipTests>true</skipTests>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>async</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <fe.stack>async</fe.stack>
+            </properties>
+        </profile>
+        <profile>
+            <id>reactive</id>
+            <properties>
+                <fe.stack>reactive</fe.stack>
+            </properties>
+        </profile>
+    </profiles>
+</project>

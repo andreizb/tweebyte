@@ -81,4 +81,23 @@ public class UserClientTest {
         assertThrows(UserNotFoundException.class, () -> userClient.getUserSummary(userId));
     }
 
+    @Test
+    void testGetUserSummaryOtherError() throws Exception {
+        // Mirrors reactive UserClientTest#getUserSummary_OtherError — non-404 ClientException
+        // must surface as InteractionException (the generic upstream-failure wrapper).
+        UUID userId = UUID.randomUUID();
+        HttpResponse<String> mockHttpResponse = Mockito.mock(HttpResponse.class);
+
+        when(httpClient.send(any(HttpRequest.class), eq(HttpResponse.BodyHandlers.ofString())))
+            .thenReturn(mockHttpResponse);
+
+        HttpResponse<String> response = Mockito.mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(HttpStatus.INTERNAL_SERVER_ERROR.value());
+
+        when(clientUtil.parseResponse(any(), eq(UserDto.class))).thenThrow(new ClientException(response));
+
+        assertThrows(ro.tweebyte.interactionservice.exception.InteractionException.class,
+            () -> userClient.getUserSummary(userId));
+    }
+
 }

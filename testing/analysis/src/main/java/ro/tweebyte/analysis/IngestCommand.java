@@ -29,42 +29,42 @@ public class IngestCommand implements Callable<Integer> {
             description = "Output CSV path.")
     Path outPath;
 
-    @CommandLine.Option(names = "--legacy-calibration-cutoff",
+    @CommandLine.Option(names = "--untagged-calibration-cutoff",
             defaultValue = "20260427_133900",
             description = "Result-dir timestamp threshold (yyyyMMdd_HHmmss). Result dirs with a "
-                    + "timestamp before this cutoff are tagged with --legacy-pre-cutoff-tag if "
+                    + "timestamp before this cutoff are tagged with --untagged-pre-cutoff-tag if "
                     + "their JSON summary doesn't carry an explicit calibration_tag; dirs at or "
-                    + "after the cutoff get --legacy-post-cutoff-tag. Default: 2026-04-27 13:39:00 EEST, "
-                    + "the moment the first calibrated W1 rerun started against the post-zero-inflation mock.")
-    String legacyCalibrationCutoff;
+                    + "after the cutoff get --untagged-post-cutoff-tag. Default: 2026-04-27 13:39:00 EEST, "
+                    + "the moment the calibrated W1 batch started against the zero-inflation mock.")
+    String untaggedCalibrationCutoff;
 
-    @CommandLine.Option(names = "--legacy-pre-cutoff-tag",
+    @CommandLine.Option(names = "--untagged-pre-cutoff-tag",
             defaultValue = "mock-defaults",
-            description = "Calibration tag applied to legacy result dirs whose timestamp is before the cutoff.")
-    String legacyPreCutoffTag;
+            description = "Calibration tag applied to untagged result dirs whose timestamp is before the cutoff.")
+    String untaggedPreCutoffTag;
 
-    @CommandLine.Option(names = "--legacy-post-cutoff-tag",
+    @CommandLine.Option(names = "--untagged-post-cutoff-tag",
             defaultValue = "qwen-3.5-4b-mlx-v1",
-            description = "Calibration tag applied to legacy result dirs whose timestamp is at or after the cutoff "
+            description = "Calibration tag applied to untagged result dirs whose timestamp is at or after the cutoff "
                     + "and whose JSON summary doesn't carry an explicit calibration_tag.")
-    String legacyPostCutoffTag;
+    String untaggedPostCutoffTag;
 
     @CommandLine.Option(names = "--campaign-manifest",
             description = "Optional path to a 2-column TSV mapping result-batch dir name → campaign label. "
-                    + "Manifest entries are AUTHORITATIVE and override the campaign label baked into the "
-                    + "run's k6 handleSummary JSON; use this to post-hoc relabel batches that launched "
-                    + "with the wrong --ai-campaign flag, or to backfill legacy runs that predate the flag. "
+                    + "Manifest entries override the campaign label from the run's k6 handleSummary JSON; "
+                    + "use this to relabel batches whose execution-time --ai-campaign should not be used, "
+                    + "or to assign a campaign to result dirs that lack one in their JSON. "
                     + "Lines starting with '#' are comments. If a dir is not listed, the run's JSON "
                     + "campaign field wins; if that is also missing, the dir's timestamp is matched against "
                     + "--campaign-cutoffs (yyyyMMdd_HHmmss=label comma-separated, ascending) to assign "
-                    + "a fallback. If no rule matches, the campaign defaults to 'pre-cleanup-pilot-2026-04-27'.")
+                    + "a fallback. If no rule matches, the campaign defaults to 'early-pilot-2026-04-27'.")
     Path campaignManifest;
 
     @CommandLine.Option(names = "--campaign-cutoffs",
             defaultValue = "20260427_193900=headline-5rep-2026-04-27,20260427_224500=diagonal-2026-04-28",
             description = "Comma-separated list of yyyyMMdd_HHmmss=label pairs, ascending. A result dir whose "
                     + "timestamp is at or after a cutoff (and before the next one) gets the cutoff's label. "
-                    + "Anything before the earliest cutoff defaults to 'pre-cleanup-pilot-2026-04-27'.")
+                    + "Anything before the earliest cutoff defaults to 'early-pilot-2026-04-27'.")
     String campaignCutoffsRaw;
 
     private static final DateTimeFormatter DIR_TS = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
@@ -75,7 +75,7 @@ public class IngestCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
-        LocalDateTime cutoff = LocalDateTime.parse(legacyCalibrationCutoff, DIR_TS);
+        LocalDateTime cutoff = LocalDateTime.parse(untaggedCalibrationCutoff, DIR_TS);
         loadCampaignManifest();
         loadCampaignCutoffs();
         List<RunResult> results = new ArrayList<>();
@@ -181,9 +181,9 @@ public class IngestCommand implements Callable<Integer> {
     /**
      * Three sources, in priority order:
      *   1. Explicit {@code calibration_tag} in the k6 handleSummary JSON
-     *      (set by the post-fix run_bench.sh + ai-streaming-benchmark.js).
-     *   2. Result-dir timestamp + cutoff (legacy backfill).
-     *   3. {@code --legacy-pre-cutoff-tag} (default: "mock-defaults") if the
+     *      (set by run_bench.sh + ai-streaming-benchmark.js).
+     *   2. Result-dir timestamp + cutoff (untagged-run backfill).
+     *   3. {@code --untagged-pre-cutoff-tag} (default: "mock-defaults") if the
      *      timestamp couldn't be parsed.
      */
     private String resolveCalibrationTag(JsonNode root, Path file, LocalDateTime cutoff) {
@@ -196,26 +196,26 @@ public class IngestCommand implements Callable<Integer> {
             if (m.find()) {
                 try {
                     LocalDateTime ts = LocalDateTime.parse(m.group(1) + "_" + m.group(2), DIR_TS);
-                    return ts.isBefore(cutoff) ? legacyPreCutoffTag : legacyPostCutoffTag;
+                    return ts.isBefore(cutoff) ? untaggedPreCutoffTag : untaggedPostCutoffTag;
                 } catch (Exception ignored) {
                     break;
                 }
             }
         }
-        return legacyPreCutoffTag;
+        return untaggedPreCutoffTag;
     }
 
     /**
      * Four sources, in priority order:
      *   1. Manifest TSV (--campaign-manifest) keyed by result-batch dir name.
      *      AUTHORITATIVE — overrides the JSON's baked-in campaign so an
-     *      operator can post-hoc relabel a batch that ran with the wrong
+     *      operator can relabel a batch whose execution-time
      *      --ai-campaign flag (e.g., one of two early-attempt batches that
      *      bear the canonical label but operationally belong to a different
      *      campaign for cell-key partitioning purposes).
      *   2. Explicit {@code campaign} in the k6 handleSummary JSON.
      *   3. Result-dir timestamp matched against --campaign-cutoffs.
-     *   4. Fallback "pre-cleanup-pilot-2026-04-27".
+     *   4. Fallback "early-pilot-2026-04-27".
      */
     private String resolveCampaign(JsonNode root, Path file) {
         // 1. Manifest wins outright.
@@ -236,7 +236,7 @@ public class IngestCommand implements Callable<Integer> {
             if (m.find()) {
                 try {
                     LocalDateTime ts = LocalDateTime.parse(m.group(1) + "_" + m.group(2), DIR_TS);
-                    String label = "pre-cleanup-pilot-2026-04-27";
+                    String label = "early-pilot-2026-04-27";
                     for (var entry : campaignCutoffs) {
                         if (!ts.isBefore(entry.getKey())) label = entry.getValue();
                         else break;
@@ -248,29 +248,29 @@ public class IngestCommand implements Callable<Integer> {
             }
         }
         // 4. Fallback.
-        return "pre-cleanup-pilot-2026-04-27";
+        return "early-pilot-2026-04-27";
     }
 
     /**
-     * Reads the {@code <c>_<i>_validation.txt} sidecar emitted by the post-2026-04-28
-     * run_bench.sh (B1 fix). When present, returns either {@code OK},
-     * {@code CONTAMINATED} (transport-error signatures inside the run window), or
-     * {@code READINESS_FAIL} (cell skipped because the SUT didn't pass the pre-warmup
-     * gate). Pre-fix runs lack the sidecar; default to {@code LEGACY-NO-VALIDATION}
-     * so downstream consumers can choose whether to trust them.
+     * Reads the {@code <c>_<i>_validation.txt} sidecar emitted by run_bench.sh.
+     * When present, returns either {@code OK}, {@code CONTAMINATED} (transport-error
+     * signatures inside the run window), or {@code READINESS_FAIL} (cell skipped
+     * because the SUT didn't pass the pre-warmup gate). Runs without the sidecar
+     * default to {@code NO_VALIDATION_SIDECAR} so downstream consumers can choose
+     * whether to trust them.
      */
     private String resolveCellStatus(Path file) {
         try {
             String fname = file.getFileName().toString();
-            if (!fname.endsWith(".txt")) return "LEGACY-NO-VALIDATION";
+            if (!fname.endsWith(".txt")) return "NO_VALIDATION_SIDECAR";
             String stem = fname.substring(0, fname.length() - 4);
             Path sidecar = file.resolveSibling(stem + "_validation.txt");
-            if (!Files.exists(sidecar)) return "LEGACY-NO-VALIDATION";
+            if (!Files.exists(sidecar)) return "NO_VALIDATION_SIDECAR";
             for (String line : Files.readAllLines(sidecar)) {
                 if (line.startsWith("cell_status=")) return line.substring("cell_status=".length()).trim();
             }
         } catch (Exception ignored) {}
-        return "LEGACY-NO-VALIDATION";
+        return "NO_VALIDATION_SIDECAR";
     }
 
     private Double nullOrDouble(JsonNode root, String group, String key) {

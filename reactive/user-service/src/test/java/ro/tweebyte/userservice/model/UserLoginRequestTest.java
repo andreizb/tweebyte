@@ -38,4 +38,15 @@ class UserLoginRequestTest {
         assertEquals(password, userLoginRequest.getPassword());
     }
 
+    @Test
+    void testUserLoginRequestBuilder() {
+        UserLoginRequest request = UserLoginRequest.builder()
+                .email("test@example.com")
+                .password("securePassword123")
+                .build();
+
+        assertEquals("test@example.com", request.getEmail());
+        assertEquals("securePassword123", request.getPassword());
+    }
+
 }

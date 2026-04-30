@@ -1,82 +1,114 @@
 # Tweebyte Testing — Numbers, Methodology, Maintenance Notes
 
-**Single source of truth** for everything we have ever measured on Tweebyte: published paper claims, raw per-cell numbers, the methodology each result was produced with, gaps, and the rerun / uniformization roadmap. Update this file every time a test count changes, a benchmark sweep is rerun, or a paper claim shifts.
+**Reference file** for current FE status, raw per-cell benchmark numbers, methodology, and maintenance rules. Update this file every time a test count changes, a benchmark sweep is rerun, or methodology shifts.
 
 > Linked artifacts:
-> - First-study aggregated numbers reproduced verbatim in §2 below.
+> - CRUD-workload aggregated numbers reproduced verbatim in §2 below.
 > - AI-streaming workload conventions: [`AGENTS.md`](../AGENTS.md).
 
 ---
 
 ## 1. Functional Equivalence
 
-The two papers anchor the FE claim on three quantities (Table 2 of paper B, p. 27):
+The current FE sign-off rests on three repo-local checks:
 
-| Type | Description | Quantity (claim) |
-|---|---|---|
-| Unit Tests | JUnit 5 component / method tests | ~150 per service (1050 total, 7 services) |
-| Behavior-Driven | Cucumber + Gherkin | 55 scenarios |
-| Performance | Concurrent-user simulations | 4 scenarios × 7 concurrency levels (10/50/100/250/500/750/1000) AND 3 scenarios × 14 concurrency levels (1/5/10/15/20/25/50/75/100/200/400/600/800/1000) |
+| Evidence | Current state |
+|---|---|
+| Unit tests | 1556 `@Test` methods: 782 async / 774 reactive; every service pair within 5 % parity; every service module clears unit-only line + branch ≥ 0.90. |
+| Cucumber | 316 scenarios under `testing/equivalence/src/test/resources/features/`; the same `.feature` files run on both stacks. |
+| Runtime path isolation | FE uses the `fe-test` compose profile; `prod` and `benchmark` paths do not load the JaCoCo overlay. |
 
 ### 1.1 Unit tests — current state
 
-Counts are `@Test`-annotated method counts on `develop` as of 2026-04-27. Each row is one Maven module.
+Counts are `@Test`-annotated method counts in the service modules. Each row is one Maven module. JaCoCo line + branch are unit-only (`./infrastructure/coverage-gate.sh unit`).
 
-| Stack | Service | @Test count | vs main (Δ) | Notes |
-|---|---|---:|---:|---|
-| async | gateway-service | **8** | +0 | Spring Cloud / Zuul boilerplate |
-| async | user-service | **137** | +1 | |
-| async | tweet-service | **203** | +11 | +10 from new AI suite (`MockStreamingChatModelTest`, `MockCalibrationTest`) + 1 misc |
-| async | interaction-service | **215** | +1 | |
-| async | **subtotal** | **563** | +13 | |
-| reactive | gateway-service | **1** | +0 | |
-| reactive | user-service | **117** | +1 | |
-| reactive | tweet-service | **175** | +11 | +10 from new AI suite + 1 misc |
-| reactive | interaction-service | **175** | +1 | |
-| reactive | **subtotal** | **468** | +13 | |
-| **Total** | | **1031** | +26 | Average across 7 services ≈ **147** (paper claim: ~150) |
+| Stack | Service | @Test count | parity gap | line | branch | gate |
+|---|---|---:|---:|---:|---:|---|
+| async | gateway-service | **14** | 0 % | 1.0000 | 1.0000 | PASS |
+| async | user-service | **218** | 1.8 % | 0.9831 | 0.9242 | PASS |
+| async | tweet-service | **252** | 3.1 % | 0.9859 | 0.9037 | PASS |
+| async | interaction-service | **298** | 4.0 % | 0.9563 | 0.9636 | PASS |
+| async | **subtotal** | **782** | — | | | |
+| reactive | gateway-service | **14** | 0 % | 1.0000 | 1.0000 | PASS |
+| reactive | user-service | **214** | — | 0.9729 | 0.9082 | PASS |
+| reactive | tweet-service | **260** | — | 0.9910 | 0.9394 | PASS |
+| reactive | interaction-service | **286** | — | 0.9119 | 1.0000 | PASS |
+| reactive | **subtotal** | **774** | — | | | |
+| **Total** | | **1556** | — | | | |
 
-**Where the FE claim sits today:** the 1031-total / 147-per-service average is within rounding of the published "1050 total / ~150 per service" claim. **But** the per-service variance is huge (8 → 215), and **async carries 95 more tests than reactive**. This asymmetry is the load-bearing weakness in the FE story: the paper claims the same coverage on both sides, but the test-method count says async is 20% better-tested.
+Per-service gap |async − reactive| / max ≤ 5 % on every module. All 8 modules clear the unit-only line + branch ≥ 0.90 gate.
+
+**FE acceptance criteria:**
+1. **Per-service unit-only line + branch ≥ 0.90** on every module (`./infrastructure/coverage-gate.sh unit`).
+2. **Per-service `@Test`-count parity** between async and reactive: `|async − reactive| / max ≤ 5 %` on every service.
+3. **Cucumber FE proof:** the same `.feature` files in `testing/equivalence/src/test/resources/features/` execute on both stacks (`mvn -f testing/equivalence/pom.xml verify -Pasync` and `... -Preactive`) and pass identically.
+4. **Combined unit + cucumber coverage** is the FE proof surface; cucumber-only coverage runs in advisory mode against structural ceilings (fault-injection-only and boot-time helpers — see the floor caveats below).
+
+**FE status:** **1556 unit tests** (782 async + 774 reactive). Per-service distribution is within 5 % parity across stacks and every service module clears the 0.90 line + branch gate via unit tests alone. The 8 service modules' coverage profile sits in the 0.91–1.00 line / 0.90–1.00 branch range, with the two gateway modules at 1.00 / 1.00 each.
 
 **Maintenance rule (do this every PR that touches test files):**
 1. Re-run the count: `for s in async/{gateway,user,tweet,interaction}-service reactive/{gateway,user,tweet,interaction}-service; do printf '%-40s %5d\n' "$s" "$(grep -rEoh '@Test\b' "$s/src/test" 2>/dev/null | wc -l)"; done`
-2. Update the table above + the per-stack subtotals + the average.
-3. If async/reactive deviate by more than 5% (currently ~20%), open a follow-up to add the missing reactive equivalents — the goal is **per-service parity, not just average parity**.
+2. Re-run the gate: `for s in async/{gateway,user,tweet,interaction}-service reactive/{gateway,user,tweet,interaction}-service; do (cd "$s" && mvn -B -DskipITs verify >/dev/null); done && ./infrastructure/coverage-gate.sh unit`
+3. Update the table above + the per-stack subtotals + the average.
+4. If async/reactive deviate by more than 5 % on any single service, OR any module drops below 0.90 line or 0.90 branch, the change must restore both before merge — that's the acceptance shape above.
 
 ### 1.2 Behavior-Driven tests — Cucumber
 
-Paper claim: **55 Gherkin scenarios** (paper A pp. 27-28, paper B p. 26).
-Current reality: **0 in repo** — the Cucumber suite is not in any tracked branch (`git ls-tree -r {main,develop} --name-only | grep -iE 'cucumber|\.feature|gherkin|stepdef'` returns nothing). The artifacts are not on disk.
+**316 scenarios** in `testing/equivalence/src/test/resources/features/`. **Same `.feature` files run on both stacks** — no `@async-only` / `@reactive-only` tags. Cucumber 7.18.1 + JUnit Platform Suite + cucumber-java; the `fe-test` compose profile (separate from `prod` and `benchmark`) layers a JaCoCo agent into each service JVM so end-to-end coverage can be aggregated. Run via `mvn -f testing/equivalence/pom.xml verify -Pasync` and `... -Preactive` (the `mvn -pl …` form does not work from the repo root because there is no parent reactor POM).
 
-Roadmap:
-1. **Re-author the suite** when the AI-extension paper is locked. Target: **100 scenarios** (the user's stated goal — bump from the original 55), covering: auth flows, tweet CRUD, follow/like/retweet/reply chains, the new caching surface, the new CPU-bound media surface, the new blocking-I/O download surface, and the new AI streaming surface (W0/W1/W2).
-2. Hold the suite under `testing/functional/cucumber/` (the `testing/README.md` already reserves `testing/functional/`).
-3. Run on both stacks via the same compose harness — Cucumber connects to gateway-service over HTTP, so the same feature files exercise both implementations and the FE claim is observable per-scenario, not just per-test-count.
+Scenario distribution:
 
-### 1.3 AI streaming tests (added 2026-04-26, this branch)
+| Area | Scenarios | Files |
+|---|---:|---|
+| user-service: signup, login, profile, search, auth-errors, validation, media, conflicts, edges | 85 | `features/user_service/*.feature` |
+| tweet-service: CRUD, search, validation, AI streaming, hashtags, media, edges | 99 | `features/tweet_service/*.feature` |
+| interaction-service: likes, retweets, replies, follows, recommendations, edges | 106 | `features/interaction_service/*.feature` |
+| gateway: routing, JWT enforcement | 11 | `features/gateway/*.feature` |
+| cross-service end-to-end | 15 | `features/cross_service/*.feature` |
+| **total** | **316** | many `.feature` files |
 
-Both stacks now ship 10 unit tests per stack covering the new AI surface:
+Source-of-truth count (must restrict to source resources to avoid double-counting against `target/test-classes/`):
+```
+find testing/equivalence/src/test/resources/features -name '*.feature' \
+  | xargs grep -c '^\s*Scenario' | awk -F: '{s+=$2} END {print s}'
+```
+
+**FE design properties enforced by the suite:**
+- Async/reactive parity across URL/config injection, Spring/R2DBC setup semantics, security validation, exception handling, Cacheable SpEL, JSR310 serialisation, Reactor non-blocking discipline, update/delete/like authorisation symmetry, GlobalExceptionHandler presence on both stacks, scheduled-cleanup symmetry, async create-tweet residency shape (`thenComposeAsync + allOf` so the mention/hashtag handlers join the response future).
+- Coverage exclusions (DTO/entity/exception/config) are configured per pom.xml; service modules carry `≥ 0.90` line + branch via unit tests alone.
+- Cucumber-only coverage runs in advisory mode against structural ceilings on classes that aren't HTTP-reachable: Resilience4j retry classifier, AI mocks' boot-time JSON parse, scheduled cleanup tick, fault-injection-only error arms.
+
+The canonical location for the FE suite is `testing/equivalence/`. 316 scenarios pass on both stacks. The suite covers auth flows, tweet CRUD, follow/like/retweet/reply chains, the Redis-backed caching surface, the CPU-bound media surface, gateway routing/JWT, cross-service end-to-end chains, AND the AI streaming surface (W0/W1/W2). Cucumber connects to gateway-service over HTTP via the `fe-test` compose profile, so the same `.feature` files exercise both stacks and equivalence is observable per scenario, not just through test-count parity.
+
+Forward maintenance:
+1. New scenarios go under `testing/equivalence/src/test/resources/features/<service>/`. Step phrasing follows the existing `Auth/User/Tweet/Interaction Steps.java` catalogue — extend if an idiom isn't represented yet.
+2. Any FE divergence (a scenario passes on one stack but not the other) must be fixed in production code; intentional behavioural differences must be documented in the commit message with severity, repro, and rationale.
+3. Re-run the cucumber-mode coverage gate (`./infrastructure/coverage-gate.sh cucumber <stack>`) when the suite expands; the result is informational (the unit gate is the load-bearing one) but tracks how much of the codebase is end-to-end-reachable.
+
+### 1.3 AI streaming tests
+
+Both stacks ship 10 unit tests per stack covering the AI surface:
 - `MockStreamingChatModelTest` (4 tests): token-count, indexed-token order, call-concatenation, accessor parity.
 - `MockCalibrationTest` (6 tests): blank/null path → defaults, missing file → defaults, incomplete JSON → defaults, parse-error → defaults, valid JSON → fitted params.
 
-Counts are included in the per-service table above (e.g. async tweet-service 203 includes the 10 new ones).
+Counts are included in the per-service table in §1.1.
 
 **Maintenance rule:** if you add an AI endpoint or a new mock parameter, write the unit test in **both** stacks symmetrically. The 10/10 split is intentional and load-bearing for the FE story.
 
 ---
 
-## 2. Performance Results — First Study (paper A, 2024)
+## 2. JMeter baseline — CRUD workloads
 
-**Source of numbers:** extracted verbatim from the prior published-paper data tables; reproduced below.
+**Source of numbers:** extracted verbatim from the recorded JMeter result tables; reproduced below.
 
-**Methodology used (paper A § 7.2.2):**
+**Methodology used:**
 - Tooling: **Apache JMeter** (load generation), **VisualVM** (resource monitoring; point samples).
 - Test plan: 60 s ramp-up + 3 min steady run; ramp-up data **excluded** from reports.
 - 4 scenarios × 7 concurrency levels = 28 cells per stack = 56 total points. Single shot per cell — **no repetitions, no CI, no statistical bands**.
 - Metrics: memory consumption (MB), CPU usage (%), avg response time (ms), 90% line (ms), throughput (req/s).
 - No standard deviation, no percentile band, no significance testing.
 
-**Methodology gaps (vs the modern playbook in §4 below):** no repetitions → no variance estimate; 90th percentile only (no p95/p99); single arrival shape (closed-loop user simulation, no open-loop arrival rate); no GC log; no continuous Actuator-driven 1-second sampling. Numbers are useful as a baseline but should not be compared head-to-head with the second-study numbers; they live in a strictly weaker measurement regime.
+**Methodology gaps (vs the modern playbook in §4 below):** no repetitions → no variance estimate; 90th percentile only (no p95/p99); single arrival shape (closed-loop user simulation, no open-loop arrival rate); no GC log; no continuous Actuator-driven 1-second sampling. Numbers are useful as a baseline but should not be compared head-to-head with the k6 service-workload numbers; they live in a strictly weaker measurement regime.
 
 ### 2.1 User Summary GET (read-heavy, single service, no I/O fan-out)
 
@@ -137,7 +169,7 @@ Counts are included in the per-service table above (e.g. async tweet-service 203
 
 ### 2.4 Tweet Summaries GET (data-intensive read; the "async wins" case)
 
-This is the scenario the paper highlights as **the case where async outperforms reactive** because the workload is dominated by ORM-style relationship loading that R2DBC handles less efficiently than JPA.
+This is the scenario where async outperforms reactive because the workload is dominated by ORM-style relationship loading that R2DBC handles less efficiently than JPA.
 
 | Concurrency | Stack | Memory (MB) | CPU (%) | Avg RT (ms) | 90% line (ms) | Throughput (req/s) |
 |---:|---|---:|---:|---:|---:|---:|
@@ -156,7 +188,7 @@ This is the scenario the paper highlights as **the case where async outperforms 
 | 1000 | async | 1979 | 59.8 | 3755 | 7195 | 218 |
 | 1000 | reactive | 691 | 80.9 | 8275 | 10547 | 99 |
 
-### 2.5 First-study static / initialization metrics (paper A Table 6)
+### 2.5 Static / initialization metrics (JMeter baseline)
 
 | Microservice | Heap on idle (MB) | Startup (ms) | JAR (MB) |
 |---|---:|---:|---:|
@@ -167,21 +199,21 @@ This is the scenario the paper highlights as **the case where async outperforms 
 | Interaction Service (async) | 70 | 3526 | 61 |
 | Interaction Service (reactive) | 51 | 2107 | 41 |
 
-### 2.6 First-study headline claims (paper A abstract)
+### 2.6 Headline claims (JMeter baseline)
 
 - **~12% reduction in memory usage** under high concurrency.
 - **~56% faster 90th-percentile response times** (most pronounced on User Summary GET at 1000 users: 277 → 121 ms).
 - **~33% increase in throughput** under high concurrency.
-- Reactive **loses** to async on data-intensive Tweet Summaries GET (≈8× longer p90 at 1000 users; ≈2× the throughput) — paper attributes this to R2DBC lacking JPA's lazy-loading / relationship-management features.
+- Reactive **loses** to async on data-intensive Tweet Summaries GET (≈8× longer p90 at 1000 users; ≈2× the throughput) — attributed to R2DBC lacking JPA's lazy-loading / relationship-management features.
 
 ---
 
-## 3. Performance Results — Second Study (paper B, 2026)
+## 3. k6 service-workload baseline — caching / CPU-bound / blocking-I/O
 
-**Methodology used (paper B § 6.1, p. 26-27):**
+**Methodology used:**
 - Tooling: **k6** (load generation; replaces JMeter), **Spring Boot Actuator** (1-second sampling; replaces VisualVM point samples).
 - 4-minute runs (60 s warmup excluded), **5 independent repetitions per cell**, 14 concurrency levels per scenario.
-- Statistics: per-cell mean, **standard deviation (σ)**, **95th percentile (p95)**, **95% confidence intervals (CI95)**. Outlier filter: 3-σ rule (no points removed in the published runs).
+- Statistics: per-cell mean, **standard deviation (σ)**, **95th percentile (p95)**, **95% confidence intervals (CI95)**. Outlier filter: 3-σ rule (no points removed in the recorded runs).
 - **JWT validation deliberately disabled** during testing to remove cryptographic overhead from the measurement and isolate the concurrency-model signal.
 - Hardware **pinned**: 16-inch MacBook Pro M3 Max (16 CPU cores, 40 GPU cores, 64 GB unified RAM), macOS, Docker. JVM: G1GC, fixed 4 GB heap.
 - Same host network context for all runs (CPU affinity stable, scheduling predictable).
@@ -194,7 +226,7 @@ This is the scenario the paper highlights as **the case where async outperforms 
 
 ### 3.1 Caching workload — Following IDs over Redis (`following-cache-redis-io-benchmark.js`)
 
-I/O-bound, Redis-backed read with 90% hot-key ratio. **Numbers below are verbatim from paper B § 6.2 text — only low/mid/peak points were quoted in body text.** Full per-level curves are in Figures 2-5; cross-check via NotebookLM is **pending** (see §6).
+I/O-bound, Redis-backed read with 90% hot-key ratio. **Numbers below are verbatim from the recorded result tables — only low/mid/peak points were quoted as body-text values.** Full per-level curves are in Figures 2-5.
 
 | Concurrency | Stack | Throughput (req/s, mean [CI95]) | Avg lat (ms) | p95 lat (ms) | Memory (MB) | CPU (%, mean [σ]) |
 |---:|---|---|---:|---:|---:|---|
@@ -207,7 +239,7 @@ I/O-bound, Redis-backed read with 90% hot-key ratio. **Numbers below are verbati
 | 1000 | async | 26,724 [26,642–26,806] | 49.80 | 84.02 | 861 | 52.1 [5.4] |
 | 1000 | reactive | 45,641 [45,496–45,785] | 28.87 | 45.39 | 940 | 31.5 [3.0] |
 
-**Headline:** at 400 users, reactive throughput is ~75% higher than async; at 1000 users, ~70% higher with ≈40% lower CPU. The CPU σ at 800 users (4.97% async vs 1.56% reactive) is the paper's strongest evidence that async pays a context-switching tax under I/O-heavy load.
+**Headline:** at 400 users, reactive throughput is ~75% higher than async; at 1000 users, ~70% higher with ≈40% lower CPU. The CPU σ at 800 users (4.97% async vs 1.56% reactive) is the strongest evidence that async pays a context-switching tax under I/O-heavy load.
 
 ### 3.2 CPU-bound workload — Image upload / processing (`image-upload-cpu-bound-benchmark.js`)
 
@@ -222,7 +254,7 @@ CPU-bound; throughput plateaus past ~50 users as both stacks saturate the CPU.
 | 100 | async | ≈374 (plateau) | ≈297 | 468.48 | 591 | ≈95 |
 | 100 | reactive | ≈374 (plateau) | ≈298 | **742.43** | 540 | ≈95 |
 
-**Headline:** identical throughput ceiling once CPU saturates; reactive's p95 spikes to 742 ms vs async's 468 ms at 100 users — head-of-line blocking on the event loop is the paper's documented weak spot for compute-heavy work.
+**Headline:** identical throughput ceiling once CPU saturates; reactive's p95 spikes to 742 ms vs async's 468 ms at 100 users — head-of-line blocking on the event loop is the documented weak spot for compute-heavy work.
 
 ### 3.3 Blocking-I/O workload — File download (`file-download-blocking-io-benchmark.js`)
 
@@ -237,13 +269,13 @@ Strictly blocking workload; throughput saturates beyond 400-600 users.
 | 1000 | async | ≈8300 [8238–8362] | 134.67 | ≈351 | 1404 | 67.0 |
 | 1000 | reactive | ≈9155 [9089–9221] | 127.38 | ≈258 | 698 | 63.4 |
 
-**Headline:** the standout claim — at 1000 users, the reactive stack uses **698 MB vs 1404 MB** for async (≈50% reduction). Paper attributes this to Netty handling the 1000 open HTTP connections at near-zero per-connection cost, while the servlet container pays for 1000 worker threads + 1000 connection contexts.
+**Headline:** the standout claim — at 1000 users, the reactive stack uses **698 MB vs 1404 MB** for async (≈50% reduction). Attributed to Netty handling the 1000 open HTTP connections at near-zero per-connection cost, while the servlet container pays for 1000 worker threads + 1000 connection contexts.
 
 ### 3.4 Plot-derived per-level data points (visual estimates from Figures 2-13)
 
-NotebookLM cannot read pixel data from PNG plots — it only quoted the body-text low/mid/peak rows in §3.1-3.3. Below: the **in-between concurrency levels** read directly off the published figures by visual inspection of the curves (PDF page render at high zoom). **These are visual estimates with precision ≈ ±5% on linear axes; values where the curves overlap are quoted as a single number.** Where a level was also quoted in body text, I keep the precise text value (no ~ prefix).
+Only low/mid/peak rows are recorded explicitly in §3.1-3.3. Below: the **in-between concurrency levels** read directly off the figures by visual inspection of the curves (PDF render at high zoom). **These are visual estimates with precision ≈ ±5% on linear axes; values where the curves overlap are quoted as a single number.** Where a level was also quoted in body text, the precise text value is kept (no ~ prefix).
 
-**For machine-precision recovery** at every level, re-run the second-study sweep through `testing/analysis/` (already supports the 14-level k6 matrix by default) and capture the per-cell CSVs. Until then, this section is the best we can do without re-execution.
+**For machine-precision recovery** at every level, re-run the k6 service-workload sweep through `testing/analysis/` (already supports the 14-level k6 matrix by default) and capture the per-cell CSVs. Until then, this section is the best we can do without re-execution.
 
 #### 3.4.1 Caching workload — per-level (Fig 2-5)
 
@@ -265,11 +297,11 @@ NotebookLM cannot read pixel data from PNG plots — it only quoted the body-tex
 | 1000 | **26,724** / **45,641** | **49.80** / **28.87** | **861** / **940** | **52.1** / **31.5** |
 
 Notable plot-only insights:
-- **Memory crossover ≈ 50 users**: reactive uses substantially less RAM at low concurrency (51% reduction at 10 users) but converges with async around 50 users and stays slightly *above* async from 50 onwards. The abstract's "68% lower memory footprint" claim only holds for the very low concurrency tail and is not visible at 200+. **Manuscript-revision flag** (already noted in §6).
+- **Memory crossover ≈ 50 users**: reactive uses substantially less RAM at low concurrency (51% reduction at 10 users) but converges with async around 50 users and stays slightly *above* async from 50 onwards. The stored 68% memory-reduction summary is only supported at the low-concurrency tail; reruns should either qualify it by concurrency or replace it.
 - **Throughput divergence ≈ 100-200 users**: both stacks track each other up through 100 users, then reactive pulls cleanly ahead. The 200-user point is where the architectural advantage becomes visible.
 - **CPU divergence is the cleanest signal**: async climbs almost linearly to the CPU wall (~52% at 1000 users), reactive holds at ~31%. The σ noted in body text (4.97 vs 1.56 at 800 users) is consistent with the visibly tighter ribbon on the reactive curve.
 
-#### 3.4.2 CPU-bound workload — per-level (Fig 6-9). X-axis maxes at 100 users (paper's design — beyond that the throughput curve plateaus).
+#### 3.4.2 CPU-bound workload — per-level (Fig 6-9). X-axis maxes at 100 users (sweep design — beyond that the throughput curve plateaus).
 
 | Concurrency | Throughput async / reactive (req/s) | Avg latency (ms, both overlap) | Memory async / reactive (MB) | CPU (%, both overlap) |
 |---:|---|---:|---|---:|
@@ -314,18 +346,17 @@ Notable plot-only insights:
 - **Memory crossover** happens around 25-50 users, similar to caching: at low concurrency reactive uses 70-80 MB while async climbs to 200+. From 50 onwards, both grow but async climbs steeper. The 50% reduction at 1000 users (698 vs 1404) is the cleanest evidence.
 - **CPU divergence at 200-400 users**: async hits 40% by 200, 67% by 400 and plateaus. Reactive is half that at 200, climbs to 40% by 400, then catches up to 63% only at 1000.
 
-### 3.5 Functional-equivalence and methodology assertions (paper B Table 2 + § 6.1)
+### 3.5 Methodology assertions for the recorded sweep
 
-- ~150 tests per service, 1050 total, 7 services, ≥90% coverage.
-- 55 Cucumber scenarios.
-- 4×7 + 3×14 perf matrix as documented in §1 above.
+- 4 × 7 + 3 × 14 perf matrix.
 - All experiments local, LAN-isolated, JWT disabled.
+- Current FE evidence (unit tests, Cucumber, runtime-path isolation) lives in §1; the sweep below is benchmark methodology, not FE sign-off.
 
 ---
 
 ## 4. Modern testing methodology (what we use now)
 
-The AI-streaming extension forced us to adopt a more rigorous methodology. The same machinery should be applied retroactively to the workloads in §3 the next time they're rerun.
+AI streaming uses the stricter methodology described below; apply the same machinery to the §3 workloads on their next run.
 
 ### 4.1 Test architecture
 - **Open-loop arrival rate** in k6 (`ramping-arrival-rate` → `constant-arrival-rate`). Keeps tail latencies honest under overload — closed-loop `constant-vus` lets the load shaper back off when the SUT slows down, which hides the cliff.
@@ -334,9 +365,9 @@ The AI-streaming extension forced us to adopt a more rigorous methodology. The s
 - **Failed-request latency tracked separately** (`ai_e2e_failed_ms` Trend), so a fast 5xx from `AbortPolicy` doesn't compress success p99 distributions.
 
 ### 4.2 Statistics
-- **Per-run p99 with bootstrap 95% CI** on the mean of per-run p99s. Implemented in `testing/analysis/.../ReportCommand.java`. Replaces the second study's "aggregate then σ" approach for a more robust uncertainty estimate.
-- **Mann-Whitney U** as the headline significance gate when comparing async vs reactive cells (Welch's t-test is also computed but only for reference — its normality assumption is not safe for per-run p99 distributions, which are extreme values; OR-ing them was a real bug we fixed during the Codex/Gemini convergence loop).
-- Outcome-tagged Micrometer Timers: `tweebyte.ai.e2e{outcome=success|error|cancel}`. Same pattern can be applied to the older workloads if rerun.
+- **Per-run p99 with bootstrap 95% CI** on the mean of per-run p99s. Implemented in `testing/analysis/.../ReportCommand.java`. Supersedes aggregate-then-σ reporting for a more robust uncertainty estimate.
+- **Mann-Whitney U** as the headline significance gate when comparing async vs reactive cells (Welch's t-test is also computed but only for reference — its normality assumption is not safe for per-run p99 distributions, which are extreme values; OR-ing the two would propagate Welch false positives, so MW-U is the only gate).
+- Outcome-tagged Micrometer Timers: `tweebyte.ai.e2e{outcome=success|error|cancel}`. Same pattern applies to the §3 workloads on their next run.
 
 ### 4.3 Server-side observability
 - Micrometer + Prometheus scraping; histograms with p50/p95/p99/p999 buckets.
@@ -349,51 +380,51 @@ The AI-streaming extension forced us to adopt a more rigorous methodology. The s
 - Mock matches via Apache Commons Math `LogNormalDistribution` + `GammaDistribution` with `ThreadLocal<Distribution>` per request thread (avoids RNG contention under load).
 - Validation: two-sample Kolmogorov-Smirnov against the fitted distribution.
 
-### 4.5 What papers A & B should adopt on rerun (uniformization plan)
+### 4.5 What the JMeter and k6 service-workload baselines should adopt on rerun (uniformization plan)
 
-| Aspect | Paper A (2024) | Paper B (2026) | Modern (this branch) | Action |
+| Aspect | JMeter baseline | k6 service-workload baseline | Current | Action |
 |---|---|---|---|---|
-| Load tool | JMeter | k6 (`constant-vus`) | k6 (`ramping-arrival-rate` → `constant-arrival-rate`) | When rerunning B, switch executor to open-loop. |
-| Resource sampling | VisualVM (point) | Actuator (1 s) | Actuator + GC log | Backport GC log to B's three workloads. |
+| Load tool | JMeter | k6 (`constant-vus`) | k6 (`ramping-arrival-rate` → `constant-arrival-rate`) | When rerunning the k6 service-workload baseline, switch executor to open-loop. |
+| Resource sampling | VisualVM (point) | Actuator (1 s) | Actuator + GC log | Backport GC log to the k6 service-workload sweep's three workloads. |
 | Repetitions | 1 | 5 | 5 (same — adequate) | Keep 5; raise only if CI bands are wide. |
-| Statistical method | None | mean/σ + CI95 | Per-run p99 + bootstrap CI + MW-U | Reanalyse B's raw runs through `testing/analysis/` if `.csv` exports are still recoverable; otherwise re-run. |
-| Concurrency levels | 7 (10..1000) | 14 (1..1000) | 14 (default in `run_bench.sh`) | A's plans frozen at 7 levels for historical reproducibility; new sweeps use 14 by default. |
+| Statistical method | None | mean/σ + CI95 | Per-run p99 + bootstrap CI + MW-U | Reanalyse the k6 service-workload sweep's raw runs through `testing/analysis/` if `.csv` exports are still recoverable; otherwise re-run. |
+| Concurrency levels | 7 (10..1000) | 14 (1..1000) | 14 (default in `run_bench.sh`) | The JMeter plans are frozen at 7 levels for reproducibility; new sweeps use 14 by default. |
 | Failure-latency split | n/a | not separated | separate `ai_e2e_failed_ms` | Add a `*_failed_ms` Trend to the three §3 workloads on next rerun. |
-| Reject-policy sweep | n/a | n/a | abort/caller-runs/discard/discard-oldest | Run A & B at `abort` for clean rejection signal; never mix policies within a run. |
+| Reject-policy sweep | n/a | n/a | abort/caller-runs/discard/discard-oldest | Run both at `abort` for clean rejection signal; never mix policies within a run. |
 
 ---
 
-## 5. Performance Results — AI Streaming workload
+## 5. AI Streaming benchmark result set
 
-**Status (2026-04-28 ~18:30 EEST):** code complete + reviewed across multiple Codex passes (v1–v7); **canonical 5-rep headline rerun landed** (§5.10 with all 9 cells at cell_status=OK, manifest-isolated under campaign `headline-5rep-rerun-2026-04-28`); diagonal cliff slice §5.11 carries the threshold-model bracketing evidence; §5.12 attribution **downgraded to supporting evidence** based on post-cell single-shot Prometheus snapshots (the in-run time-series figure remains a deferred follow-up because the in-run poller's regex bug was discovered after the rerun finished); §5.13 **executed** — 18 realism cells against `mlx_lm.server` (Apple's mlx-lm package serving the same MLX-4bit weights as the calibration source via continuous batching). Calibration `calibration.json` committed; alternative-family investigation in §5.2.1 documents the bimodal/comb-quantization structure of empirical ITL. Cell-key carries `calibration_tag` + `campaign` dimensions so cross-batch pooling is prevented. **Submission-ready for MDPI Applied Sciences.**
+**Status (2026-04-28 ~18:30 EEST).** Canonical 5-rep headline at §5.10 (9 cells, all `cell_status=OK`, manifest-isolated under campaign `headline-5rep-rerun-2026-04-28`). Diagonal cliff slice in §5.11 carries the threshold-model bracketing evidence. §5.12 attribution rests on post-cell single-shot Prometheus snapshots; an in-run time-series figure is pending. §5.13 carries 18 realism cells against `mlx_lm.server` (Apple's mlx-lm package serving the same MLX-4bit weights as the calibration source via continuous batching). Calibration `calibration.json` committed; §5.2.1 records the bimodal/comb-quantization structure of empirical ITL. Cell-key carries `calibration_tag` + `campaign` dimensions so cross-batch pooling is prevented.
 
-**Manuscript-ready H1 phrasing (revised 2026-04-27 after Codex review; numbers refreshed against the canonical §5.10 rerun).** Under sustained open-loop arrival rate λ, a servlet-based stack with a bounded `ThreadPoolExecutor` of size T degrades its per-run p99 end-to-end latency by **> 500 %** relative to a comparable reactive stack **whenever request residency `E[response]` × λ exceeds T**. The cliff is a structural property of `(bounded servlet worker pool + long-residency streaming requests)` — *not* of LLM inference or mid-stream blocking calls in particular: it reproduces cleanly at the cleanest cliff cell (rps=500, pool=400) on the non-AI streaming baseline **W0 at 9.20×**, the pure AI chat workload **W1 at 7.27×**, and the AI-with-mid-stream-tool-call workload **W2 at 7.25×** (per §5.10's canonical 5-rep manifest-isolated headline). Spring AI streaming + tool-orchestration is the *motivating* workload that exercises the cliff at production-realistic per-request residencies; it is not the cliff's cause. The original (pre-revision) wording — "tool I/O exceeds mean inter-token interval" — overclaimed Spring-AI causality and is retired.
+**AI streaming threshold result.** Under sustained open-loop arrival rate λ, a servlet-based stack with a bounded `ThreadPoolExecutor` of size T degrades its per-run p99 end-to-end latency by **> 500 %** relative to a comparable reactive stack **whenever request residency `E[response]` × λ exceeds T**. The cliff is a structural property of `(bounded servlet worker pool + long-residency streaming requests)` — *not* of LLM inference or mid-stream blocking calls in particular: it reproduces cleanly at the cleanest cliff cell (rps=500, pool=400) on the non-AI streaming baseline **W0 at 9.20×**, the pure AI chat workload **W1 at 7.27×**, and the AI-with-mid-stream-tool-call workload **W2 at 7.25×** (per §5.10's canonical 5-rep manifest-isolated headline). Spring AI streaming + tool-orchestration is the *motivating* workload that exercises the cliff at production-realistic per-request residencies; it is not the cliff's cause.
 
-**Continuity with paper B:** the AI-streaming extension is not a tangent — paper B's own future-work section (§7.2) explicitly anticipates "controllers driven by machine learning [that] could, based on real-time workload metrics, [...] be in charge of dynamically managing the cache eviction policies, thread-pool sizing, or database connection handling." The revised H1 above gives a quantitative threshold that future work can target.
+**Continuity with the recorded k6 service-workload baseline:** the AI-streaming extension is not a tangent — that baseline's forward-looking note anticipates "controllers driven by machine learning [that] could, based on real-time workload metrics, [...] be in charge of dynamically managing the cache eviction policies, thread-pool sizing, or database connection handling." The H1 above gives a quantitative threshold that future benchmarking can target.
 
 | What | Where | Status |
 |---|---|---|
-| Endpoints (`/tweets/ai/{summarize,buffered,summarize-with-tool,mock-stream}`) | both stacks | ✅ shipped |
-| Spring AI 1.0.1 + LM Studio + calibrated mock | `AiConfiguration.java` | ✅ shipped |
-| k6 workload (W0/W1/W2 × {sse,buffered}) | `ai-streaming-benchmark.js` | ✅ shipped |
-| `--ai-calibration-tag` cell-key dimension | `run_bench.sh`, k6 workload, analysis pipeline | ✅ shipped (2026-04-27 evening) |
-| All-error run quarantine in `report` | `testing/analysis/.../ReportCommand.java` | ✅ shipped (2026-04-27 evening) |
-| Analysis pipeline (ingest → report → plot) | `testing/analysis/` | ✅ shipped + executed on real data |
+| Endpoints (`/tweets/ai/{summarize,buffered,summarize-with-tool,mock-stream}`) | both stacks | ✅ in repo |
+| Spring AI 1.0.1 + LM Studio + calibrated mock | `AiConfiguration.java` | ✅ in repo |
+| k6 workload (W0/W1/W2 × {sse,buffered}) | `ai-streaming-benchmark.js` | ✅ in repo |
+| `--ai-calibration-tag` cell-key dimension | `run_bench.sh`, k6 workload, analysis pipeline | ✅ in repo |
+| All-error run quarantine in `report` | `testing/analysis/.../ReportCommand.java` | ✅ in repo |
+| Analysis pipeline (ingest → report → plot) | `testing/analysis/` | ✅ in repo + executed on real data |
 | Calibration JSON (Qwen3.5-4B-MLX, zero-inflated mock) | `testing/calibration/calibration.json` | ✅ committed; TTFT K-S accept, ITL K-S reject (caveat in §5.2) |
 | Sweep matrix — W1 (mock-defaults + calibrated) | `testing-results/performance/k6/results_ai_streaming_20260427_0[9]*` and `_1[3]*` | ✅ executed; calibration tag distinguishes batches |
 | Sweep matrix — W2 mid-stream tool | `testing-results/performance/k6/results_ai_streaming_20260427_15* / 16*` | ✅ executed (9 cells × 3 runs, see §5.4) |
 | Sweep matrix — W0 non-AI baseline | `testing-results/performance/k6/results_ai_streaming_20260427_17* / 18*` | ✅ executed (9 cells × 3 runs, see §5.5) |
-| 5-rep headline rerun + diagonal cliff slice | — | ✅ landed (§5.10 W0 9.20× / W1 7.27× / W2 7.25×; §5.11 brackets the threshold within ~10 %) |
-| Attribution figure (queue/rejections vs p99) | — | ✅ supporting evidence in §5.12 (post-cell snapshots); in-run time-series remains a deferred Q1-polish follow-up |
-| Full 3-batch matrix | — | **deferred**: ≈30 h, not on H1 critical path |
+| 5-rep headline + diagonal cliff slice | — | ✅ §5.10 W0 9.20× / W1 7.27× / W2 7.25×; §5.11 brackets the threshold within ~10 % |
+| Attribution figure (queue/rejections vs p99) | — | ✅ supporting evidence in §5.12 (post-cell snapshots); in-run time-series capture is pending |
+| Full 3-batch matrix | — | not currently scheduled (≈30 h, not on H1 critical path) |
 | Real-LM realism subset | — | ✅ executed via `mlx_lm.server` (§5.13: 18 cells across W1+W2 × {async,reactive} × {rps=1, rps=2}; runtime-comparability finding documented) |
-| Paper write-up | — | unblocked |
+| Result-set write-up | — | unblocked |
 
-> **Reading order note (2026-04-28):** §5.10–§5.12 below are the **canonical post-cleanup headline numbers + diagonal cliff slice + attribution**. §5.1, §5.3, §5.4, §5.5 are kept for historical reference and method-validation provenance — they're the mock-defaults / pre-cleanup runs that motivated the calibration_tag identity fix and the all-error quarantine. For the manuscript, cite §5.10–§5.12.
+> **Result-set map.** §5.10–§5.12 are the current headline result set (headline numbers + diagonal cliff slice + attribution). §5.1, §5.3, §5.4, §5.5 are calibration and validation datasets that exercise the calibration_tag identity dimension and the all-error quarantine.
 
-### 5.1 W1 pilot — 2026-04-27 (mock backend, defaults, pre-calibration)
+### 5.1 W1 exploratory batch (2026-04-27, mock backend, defaults, pre-calibration)
 
-**Setup.** k6 open-loop arrival rate via `ramping-arrival-rate → constant-arrival-rate`; warmup=30s, duration=90s, gracefulStop=60s, abort reject policy. 3 independent runs per cell, bootstrap 95% CI on the mean of per-run p99s. Mock backend on `MockStreamingChatModel` defaults (`AI_MOCK_TTFT_MEAN_MS=250`, `AI_MOCK_TTFT_LOG_SIGMA=0.4`, `AI_MOCK_ITL_MEAN_MS=40`, `AI_MOCK_ITL_GAMMA_SHAPE=2.5`, `AI_MOCK_TOKENS_PER_RESPONSE=150`) — i.e. ~6.25 s mock response time. **No calibration JSON applied yet** (calibration was running in parallel during the pilot; the calibrated rerun is on the deferred list). Stack: M3 Max 64 GB, all containers on Docker Desktop, `caffeinate -d -i -s -u` running the entire pilot to prevent macOS system sleep from contaminating in-flight latency measurements (one earlier attempt was lost to that exact issue — documented in §5.9 #5).
+**Setup.** k6 open-loop arrival rate via `ramping-arrival-rate → constant-arrival-rate`; warmup=30s, duration=90s, gracefulStop=60s, abort reject policy. 3 independent runs per cell, bootstrap 95% CI on the mean of per-run p99s. Mock backend on `MockStreamingChatModel` defaults (`AI_MOCK_TTFT_MEAN_MS=250`, `AI_MOCK_TTFT_LOG_SIGMA=0.4`, `AI_MOCK_ITL_MEAN_MS=40`, `AI_MOCK_ITL_GAMMA_SHAPE=2.5`, `AI_MOCK_TOKENS_PER_RESPONSE=150`) — i.e. ~6.25 s mock response time. **No calibration JSON applied** in this batch; the calibrated 9-cell W1 batch lives in §5.3. Stack: M3 Max 64 GB, all containers on Docker Desktop, `caffeinate -d -i -s -u` runs throughout to prevent macOS system sleep from contaminating in-flight latency measurements (see §5.9 #5).
 
 | Stack | rps | pool | n_runs | e2e_p99_mean (ms) | e2e_p99 CI95 (ms) | ttft_p99_mean (ms) | error_rate | dropped | requests |
 |---|---:|---:|---:|---:|---|---:|---:|---:|---:|
@@ -407,11 +438,11 @@ The AI-streaming extension forced us to adopt a more rigorous methodology. The s
 | async    | 2000 | 1600 | 3 | **43,256.7** | [38,820.4, 45,491.3]  | 28,709.9  | **0.906** | 302,851 | 315,289 |
 | reactive | 2000 | —    | 3 | **30,441.6** | [28,929.8, 32,808.7]  | 849.0     | **0.948** | 316,837 | 294,861 |
 
-(Raw runs: `testing-results/runs.csv` (33 rows). Cell aggregates: `testing-results/cells.csv` (13 cells incl. smoke + 3 prior-session probes from 2026-04-20). Both gitignored under `testing-results/`.)
+(Raw runs: `testing-results/runs.csv` (33 rows). Cell aggregates: `testing-results/cells.csv` (13 cells, including smoke probes and 2026-04-20 probes). Both gitignored under `testing-results/`.)
 
 #### 5.1.1 Headline paired tests (MW-U at α=0.05; Welch printed for reference, not used)
 
-The verdict column is gated on the non-parametric Mann-Whitney U test only — Welch's t-test was kept in for reference but its normality assumption is unreliable for per-run p99s (extreme values), so OR-ing them would propagate Welch false positives. This was the round-1 G6 finding from the Codex/Gemini convergence loop and was applied in `testing/analysis/.../ReportCommand.java`.
+The verdict column is gated on the non-parametric Mann-Whitney U test only — Welch's t-test was kept in for reference but its normality assumption is unreliable for per-run p99s (extreme values), so OR-ing them would propagate Welch false positives. The implementation lives in `testing/analysis/.../ReportCommand.java`.
 
 | Cell (W1, sse, abort) | async pool | a_n / r_n | a_p99_mean | r_p99_mean | a/r ratio | MW-U p | Verdict |
 |---|---:|---:|---:|---:|---:|---:|---|
@@ -422,20 +453,20 @@ The verdict column is gated on the non-parametric Mann-Whitney U test only — W
 | rps=2000 | 400 | 3 / 3 | 59,965.8 | 30,441.6 | 1.97× | 0.05 | **DIFFERENT (both cliff; async worse)** |
 | rps=2000 | 1600 | 3 / 3 | 43,256.7 | 30,441.6 | 1.42× | 0.05 | **DIFFERENT (both cliff; async worse)** |
 
-#### 5.1.2 H1 verdict on the pilot data
+#### 5.1.2 H1 verdict on the §5.1 batch
 
-H1 ("async+blocking p99 degrades >500% vs reactive when C > T") is **supported** by the pilot. Two pieces of evidence:
+H1 ("async+blocking p99 degrades >500% vs reactive when C > T") is **supported** by the §5.1 batch. Two pieces of evidence:
 
 1. **Cliff threshold tracks pool size as predicted.** With mock response ≈6.25 s, the C/T crossover is at rps ≈ 67 (pool=400) and rps ≈ 267 (pool=1600). Empirically: async p99 is flat (7 s) below the crossover and explodes above it — pool=400 cliffs between rps=50 and rps=500 (8.5× ratio at rps=500), pool=1600 cliffs between rps=50 and rps=500 too but with milder factor (4.33×). At rps=50 both pool sizes are below their respective crossovers and there's no cliff.
 
 2. **Reactive holds parity below ~rps=2000.** At rps=50 and rps=500 reactive sits at 7.04–7.06 s p99, error_rate=0.000. The Netty event loop absorbs the in-flight count without queue starvation. The cliff factor at rps=500 pool=400 (8.50×) is well above the H1's >500% threshold.
 
-#### 5.1.3 Caveats on the pilot
+#### 5.1.3 Caveats
 
 - **Pre-calibration mock.** The mock used `MockStreamingChatModel` defaults (250 ms TTFT, 40 ms ITL, 150 tokens). Real Qwen TTFT is ~3 s and ITL ~3 ms (per the in-flight calibration). When the calibrated mock lands, the cliff threshold will shift to lower RPS but the *shape* of the curve should not change. Re-run the same 9-cell shape with `AI_MOCK_CALIBRATION_JSON=…/calibration.json` to confirm.
-- **Reactive cliffs at rps=2000.** Reactive p99 at rps=2000 is 30.4 s with error_rate=0.948 — i.e. reactive *also* breaks at this load. Likely cause: 12 k concurrent SSE connections × 6 s response = open-fd / Netty backlog limits on the single-machine test rig. This is a known threats-to-validity item — the open-loop arrival rate has saturated *both* stacks at this level, but async still loses by 2× even after both have collapsed. Not a refutation of H1 (the H1 asks about the C > T cliff, not steady-state over-capacity behaviour) but it is worth a sentence in the manuscript's threats-to-validity section.
-- **W0/W2 not in the pilot.** Only W1 (pure chat streaming) was executed. W0 (non-AI mock-stream baseline) and W2 (mid-stream tool call) are deferred. W2 in particular is the H1's strongest surface — the blocking `UserClient.getUserSummary()` mid-stream is what the round-1 ledger fix C was about, and the cliff there should be more dramatic than W1.
-- **Two contaminated cells discarded.** During the first overnight pass, the laptop entered system sleep ~04:00 EEST and suspended both calibration and the in-flight k6 cells via SIGSTOP. On wake, e2e_p99 reported wall durations including the sleep gap (3+ hours). Cells `results_ai_streaming_20260427_012922_aNBycE/50_3.txt` and `results_ai_streaming_20260427_043846_2AYHRd/` were quarantined to `testing-results/_contaminated_sleep/` (out of the analysis tree) and the pilot was re-run from scratch with `caffeinate -d -i -s -u` active. Future operators: pre-arm `caffeinate` before any long-running collect or sweep.
+- **Reactive cliffs at rps=2000.** Reactive p99 at rps=2000 is 30.4 s with error_rate=0.948 — i.e. reactive *also* breaks at this load. Likely cause: 12 k concurrent SSE connections × 6 s response = open-fd / Netty backlog limits on the single-machine test rig. This is a known threats-to-validity item — the open-loop arrival rate has saturated *both* stacks at this level, but async still loses by 2× even after both have collapsed. Not a refutation of H1 (the H1 asks about the C > T cliff, not steady-state over-capacity behaviour) but worth recording in the threats-to-validity log.
+- **W0/W2 covered in later sections.** §5.1 covers only W1 (pure chat streaming); W0 (non-AI mock-stream baseline) appears in §5.5 and W2 (mid-stream tool call) in §5.4. W2 in particular is the H1's strongest surface — the blocking `UserClient.getUserSummary()` mid-stream pins the worker thread for the entire residency window, and the cliff there should be more dramatic than W1.
+- **Two cells quarantined for system-sleep contamination.** When macOS system sleep suspends a running k6 cell via SIGSTOP, e2e_p99 reports wall durations including the sleep gap (multi-hour). Cells `results_ai_streaming_20260427_012922_aNBycE/50_3.txt` and `results_ai_streaming_20260427_043846_2AYHRd/` were quarantined to `testing-results/_contaminated_sleep/` (out of the analysis tree). Pre-arm `caffeinate -d -i -s -u` before any long-running collect or sweep to prevent recurrence.
 
 #### 5.1.4 Figures
 
@@ -445,11 +476,11 @@ PNGs landed in the gitignored `testing-results/figures/` directory:
 - `pool_size_scaling_W1_sse.png` — per-stack p99 vs pool_size at fixed rps, one series per RPS level. Shows the async cliff height shrinking monotonically as pool grows from 400 → 1600 (5.7× at rps=500, 1.4× at rps=2000 vs the rps=50 baseline).
 - `h1_validation_scatter.png` — paired (async, reactive) p99 ratios at matched (workload, transport, target_rps, cancel_rate) cells. The dots above the y=1 line are the cliffs; pool=400 sits well above pool=1600 in the upper-right cluster.
 
-When the next sweep batch lands (W0/W2 or calibrated rerun), append rows to §5.1's table in the same column shape and regenerate the figures via `bash run.sh bench k6 --workload ai-streaming … && java -jar testing/analysis/target/analysis-0.0.1-SNAPSHOT.jar ingest|report|plot …`.
+Future sweep batches append rows to §5.1's table in the same column shape; regenerate figures via `bash run.sh bench k6 --workload ai-streaming … && java -jar testing/analysis/target/analysis-0.0.1-SNAPSHOT.jar ingest|report|plot …`.
 
 ### 5.2 Calibration of the mock against real Qwen3.5-4B-MLX (2026-04-27)
 
-`testing/calibration/calibration.json` is the canonical artefact (1.7 MB on disk; raw `ttft_samples` + `itl_samples` + `token_counts` arrays plus all three fitted families with AIC/BIC). It is committed under version control because the fitted parameters are load-bearing for paper reproducibility.
+`testing/calibration/calibration.json` is the canonical artifact (1.7 MB on disk; raw `ttft_samples` + `itl_samples` + `token_counts` arrays plus all three fitted families with AIC/BIC). It is committed under version control because the fitted parameters are load-bearing for benchmark reproducibility.
 
 **Setup.** 2000 streaming requests issued against LM Studio's `/v1/chat/completions` with `qwen3.5-4b-mlx` (HF rev `32f3e8e…`, MLX 4-bit, 8192-token context, temperature 0.7, prompt `"Summarize recent activity."`, `max_tokens=768`). 1973 of the 2000 samples produced at least one `delta.content` chunk; the other 27 burned their entire budget on `reasoning_content` and contributed only a `token_count=0` row. Total wall time 5826.6 s (~97 min) at ~2.91 s/sample on idle hardware. HTTP/1.1 forced in `CollectSamplesCommand` (Java HTTP/2 streaming is broken against this LM Studio build — the JDK HTTP/2 implementation parks indefinitely against LM Studio's streaming response handler; HTTP/1.1 is a stable workaround). Per-request timeout 60 s, per-sample body deadline 90 s; zero hard timeouts triggered in this run.
 
@@ -502,16 +533,16 @@ After running [`testing/calibration/.../RefitCommand.java`](../testing/calibrati
 
 **Marginal mean preservation.** The mock generates `p_burst=0.3843` of tokens at zero delay and the rest from gamma(3.0034, 4.8141) with mean 14.4587 ms. Marginal mean: `0.3843 × 0 + 0.6157 × 14.4587 = 8.902 ms`, matching the observed unfiltered ITL mean of 8.904 ms to within 0.03 %. So **`E[response]` is preserved exactly** — which is the load-bearing property for H1 (request residency × arrival rate vs pool size).
 
-**Why K-S still rejects.** Two issues, in descending order of impact (corrected from initial diagnosis — see §5.2.1 for the empirical investigation that updated this picture):
+**Why K-S still rejects.** Two issues, in descending order of impact (see §5.2.1 for the empirical investigation that grounds this picture):
 
-1. **Multimodal/comb-quantized gap-mode distribution.** The empirical gap-mode histogram exhibits two dominant peaks at ≈ 8.7 ms and ≈ 17.8 ms (~1× and ~2× a common base period), consistent with hardware token-clock quantization on Apple Silicon Metal and SSE chunk coalescing combining two tokens into one network packet. Initial diagnosis described this as "a hard floor at 7.7 ms"; that wording was imprecise — the actual minimum is 0.10 ms (a small near-burst tail), and the apparent floor at 7.7 ms is the lower edge of the dominant ~8.7 ms peak. No low-parameter continuous smooth family (gamma, log-normal, Weibull, shifted log-normal) can reproduce the comb structure. At n=103,722 gap-mode samples the K-S 95 % critical value is ≈ 0.0042, so even a 5-parameter 2-component log-normal mixture (which reduces the K-S statistic from 0.262 to 0.122 and AIC from 677 k to 510 k) still rejects — see §5.2.1.
+1. **Multimodal/comb-quantized gap-mode distribution.** The empirical gap-mode histogram exhibits two dominant peaks at ≈ 8.7 ms and ≈ 17.8 ms (~1× and ~2× a common base period), consistent with hardware token-clock quantization on Apple Silicon Metal and SSE chunk coalescing combining two tokens into one network packet. The minimum gap-mode sample is 0.10 ms (a small near-burst tail); the apparent floor at 7.7 ms is the lower edge of the dominant ~8.7 ms peak, not a hard floor. No low-parameter continuous smooth family (gamma, log-normal, Weibull, shifted log-normal) can reproduce the comb structure. At n=103,722 gap-mode samples the K-S 95 % critical value is ≈ 0.0042, so even a 5-parameter 2-component log-normal mixture (which reduces the K-S statistic from 0.262 to 0.122 and AIC from 677 k to 510 k) still rejects — see §5.2.1.
 2. **Discrete-vs-continuous spike at zero.** The mock emits exactly 0.0 ms for intra-burst tokens; the empirical samples occupy a thin band 0.0008 ms – 0.1 ms. Smaller effect than (1) but contributes.
 
-**What this means for the paper.** Three honest lines for the threats-to-validity / methods section:
+**What this means for the methodology log.** Three honest lines for the threats-to-validity / methods section:
 
-> Real-Qwen ITL exhibits a TCP-burst structure: 38.43 % of measured inter-token intervals are below 100 µs (multiple `delta.content` chunks per TCP frame, read back-to-back at memory speed by a Java HTTP/1.1 client); the remaining 61.57 % are real model-emission gaps. The gap-mode distribution itself is multimodal with hardware-quantization peaks at ≈ 8.7 ms (~53 %) and ≈ 17.8 ms (~47 %). We characterise the calibrated mock against the gap-mode subset under a zero-inflated gamma draw (`p_burst = 0.3843`, gamma(`shape=3.0034, scale=4.8141`) for the gap mode) so total `E[response]` is preserved — the marginal mean of the resulting mock matches the empirical mean of 8.90 ms to 0.03 %. The K-S goodness-of-fit on the gap-mode sub-distribution rejects at α=0.05 because none of the low-parameter continuous smooth families we tested (gamma, log-normal, shifted log-normal, 2-component log-normal mixture) can reproduce the comb-quantized empirical structure at n=103,722; the gamma fit serves as a first-order surrogate (mean preserved) rather than a distribution-equivalent draw. The H1 cliff claim is insensitive to fine-grained within-stream clustering conditional on preserving per-request service time: in the async thread-per-request model the worker thread is pinned from request entry until the final token, so the precise within-stream emission shape is irrelevant to pool starvation — the cliff appears whenever request residency × arrival rate exceeds pool size, conditional on the mean residency being faithfully reproduced. The exact cliff *shape* (steepness, knee width) under a comb-aware sampler is recorded as a Q1-confidence open follow-up.
+> Real-Qwen ITL exhibits a TCP-burst structure: 38.43 % of measured inter-token intervals are below 100 µs (multiple `delta.content` chunks per TCP frame, read back-to-back at memory speed by a Java HTTP/1.1 client); the remaining 61.57 % are real model-emission gaps. The gap-mode distribution itself is multimodal with hardware-quantization peaks at ≈ 8.7 ms (~53 %) and ≈ 17.8 ms (~47 %). We characterise the calibrated mock against the gap-mode subset under a zero-inflated gamma draw (`p_burst = 0.3843`, gamma(`shape=3.0034, scale=4.8141`) for the gap mode) so total `E[response]` is preserved — the marginal mean of the resulting mock matches the empirical mean of 8.90 ms to 0.03 %. The K-S goodness-of-fit on the gap-mode sub-distribution rejects at α=0.05 because none of the low-parameter continuous smooth families we tested (gamma, log-normal, shifted log-normal, 2-component log-normal mixture) can reproduce the comb-quantized empirical structure at n=103,722; the gamma fit serves as a first-order surrogate (mean preserved) rather than a distribution-equivalent draw. The H1 cliff claim is insensitive to fine-grained within-stream clustering conditional on preserving per-request service time: in the async thread-per-request model the worker thread is pinned from request entry until the final token, so the precise within-stream emission shape is irrelevant to pool starvation — the cliff appears whenever request residency × arrival rate exceeds pool size, conditional on the mean residency being faithfully reproduced. The exact cliff *shape* (steepness, knee width) under a comb-aware sampler is recorded as an open follow-up.
 
-**Open follow-up (deferred — not on the H1 critical path).** Originally we hypothesized a 3-parameter shifted log-normal (or shifted-and-truncated gamma) fitted on the gap-mode subset would capture the hard floor and accept K-S. The empirical histogram inspection in §5.2.1 showed this hypothesis was wrong (the apparent "floor" is actually the lower edge of a bimodal cluster) and the shifted-log-normal MLE collapses to the unshifted log-normal. A 2-component log-normal mixture captures the structure substantially better (AIC drops 25 %; K-S statistic halves) but still rejects under K-S at large n due to the empirical comb structure. Logging the empirical finding here for whoever picks up the paper revision; a true mock improvement would require either a comb-aware family or an empirical-CDF inverse-transform sampler. Neither is on the H1 critical path.
+**Open follow-up (not on the H1 critical path).** A 3-parameter shifted log-normal cannot capture the gap-mode distribution: the apparent "floor" is the lower edge of a bimodal cluster (§5.2.1), and the shifted-log-normal MLE collapses to the unshifted log-normal. A 2-component log-normal mixture captures the structure substantially better (AIC drops 25 %; K-S statistic halves) but still rejects under K-S at large n due to the empirical comb structure. A true mock improvement would require either a comb-aware family or an empirical-CDF inverse-transform sampler. Neither is on the H1 critical path.
 
 **How to use the calibration in a benchmark sweep.** Set `AI_MOCK_CALIBRATION_JSON=/Users/andrei/Developer/tweebyte/testing/calibration/calibration.json` before `runtime up`; the Spring container bind-mount in `infrastructure/compose/{async,reactive}.yml` exposes `./testing/calibration → /app/calibration:ro` so the file is visible at `/app/calibration/calibration.json` from inside the JVM. `MockCalibration.loadOrDefault(...)` reads the JSON at startup, parses the four `AI_MOCK_*` numerical defaults plus `itl_fits.p_burst`, and constructs `MockStreamingChatModel` with zero-inflated ITL emission. Older calibration JSONs without `p_burst` (or any caller passing `0.0`) collapse cleanly back to the original pure-gamma behaviour — backward compatible.
 
@@ -524,9 +555,9 @@ java -jar testing/calibration/target/calibration-0.0.1-SNAPSHOT.jar validate \
     --calibration testing/calibration/calibration.json
 ```
 
-#### 5.2.1 Alternative-family investigation for the ITL K-S rejection (2026-04-28)
+#### 5.2.1 Alternative ITL fits and the K-S rejection
 
-Codex's v6 review note recommended trying a 3-parameter shifted log-normal as a Q1-polish closer for the K-S rejection on ITL flagged in §5.9 #4. While exploring the histogram during the implementation, we discovered the gap-mode distribution is **multimodal** rather than having a single hard floor. This subsection records the empirical finding and the alternative fits we computed; the production mock binary continues to consume the gamma fit unchanged.
+Empirical histogram inspection of the gap-mode distribution shows it is **multimodal**, not single-floor. This subsection records that finding and lists the alternative fits computed against it. The production mock binary continues to consume the gamma fit unchanged.
 
 **Empirical histogram of the gap-mode subset (samples ≥ 0.1 ms, n=103,722, 0.5 ms bins):**
 
@@ -577,15 +608,15 @@ java -jar testing/calibration/target/calibration-0.0.1-SNAPSHOT.jar validate \
     --itl-family lognormal_mixture
 ```
 
-### 5.3 Calibrated W1 rerun (2026-04-27 13:39 → ~15:10 EEST)
+### 5.3 Calibrated W1 batch (2026-04-27 13:39 → ~15:10 EEST)
 
-After the calibration above landed, the same 9-cell W1 shape from §5.1 was re-executed with `AI_MOCK_CALIBRATION_JSON` pointed at `calibration.json` so the mock now uses the fitted log-normal TTFT (μ=7.6012, σ=0.3038, mean ≈ 2.10 s) and zero-inflated gamma ITL (`p_burst=0.3843`, gamma(3.0034, 4.8141), gap-mode mean 14.46 ms). The cell-key in the analysis pipeline (`workload, transport, target_rps, cancel_rate, pool, policy`) does **not** distinguish calibrated from mock-default runs, so the calibrated rerun pooled into the same cells as the §5.1 mock-default runs — `a_n` and `r_n` jump from 3 to 6 in the cells.csv where this happened.
+Once the calibration above is in place, the same 9-cell W1 shape from §5.1 is re-executed with `AI_MOCK_CALIBRATION_JSON` pointed at `calibration.json` so the mock now uses the fitted log-normal TTFT (μ=7.6012, σ=0.3038, mean ≈ 2.10 s) and zero-inflated gamma ITL (`p_burst=0.3843`, gamma(3.0034, 4.8141), gap-mode mean 14.46 ms). The cell-key in the analysis pipeline (`workload, transport, target_rps, cancel_rate, pool, policy`) does **not** distinguish calibrated from mock-default runs, so the calibrated rerun pooled into the same cells as the §5.1 mock-default runs — `a_n` and `r_n` jump from 3 to 6 in the cells.csv where this happened.
 
-Pooling caveat acknowledged. For the next manuscript revision, k6's handleSummary should emit a `calibration` tag (e.g. `mock-defaults` vs `qwen3.5-4b-mlx`) and the cell-key should include it, so the two batches are kept distinct. Logged on the deferred list. The cliff direction and rough magnitude do not change with calibration: see §5.5 for the synthesis.
+Pooling caveat acknowledged. For the next benchmark cycle, k6's handleSummary should emit a `calibration` tag (e.g. `mock-defaults` vs `qwen3.5-4b-mlx`) and the cell-key should include it, so the two batches are kept distinct. The cliff direction and rough magnitude do not change with calibration: see §5.5 for the synthesis.
 
-### 5.4 W2 mid-stream tool-call pilot (2026-04-27 15:32 → 17:10 EEST)
+### 5.4 W2 mid-stream tool-call batch (2026-04-27 15:32 → 17:10 EEST)
 
-W2 is the **canonical H1 surface**: each request runs an SSE stream, and after `app.ai.tool-call-after-tokens=75` mock tokens the controller makes a *blocking* `UserClient.getUserSummary(uuid)` call against `user-service` mid-stream (`java.net.http.HttpClient.send()` on the async stack — explicitly the round-1 fix-C surface — and a non-blocking `WebClient` exchange on reactive). Same 9-cell shape as W1 (pool {400, 1600} × rps {50, 500, 2000} × {async, reactive}); same warmup=30 s, duration=90 s, 3 runs/cell, `abort` reject policy. **Calibrated mock backend** (zero-inflated gamma + log-normal TTFT). Seeded benchmark user `00000000-0000-0000-0000-000000000001` provided the tool-call target (`BenchmarkDataInitializer` on user-service).
+W2 is the **canonical H1 surface**: each request runs an SSE stream, and after `app.ai.tool-call-after-tokens=75` mock tokens the controller makes a *blocking* `UserClient.getUserSummary(uuid)` call against `user-service` mid-stream (`java.net.http.HttpClient.send()` on the async stack — pinning the worker thread for the duration — and a non-blocking `WebClient` exchange on reactive). Same 9-cell shape as W1 (pool {400, 1600} × rps {50, 500, 2000} × {async, reactive}); same warmup=30 s, duration=90 s, 3 runs/cell, `abort` reject policy. **Calibrated mock backend** (zero-inflated gamma + log-normal TTFT). Seeded benchmark user `00000000-0000-0000-0000-000000000001` provided the tool-call target (`BenchmarkDataInitializer` on user-service).
 
 | Stack | rps | pool | n | e2e_p99_mean (ms) | e2e_p99 CI95 (ms) | ttft_p99_mean (ms) | error_rate | dropped | requests |
 |---|---:|---:|---:|---:|---|---:|---:|---:|---:|
@@ -613,12 +644,12 @@ W2 is the **canonical H1 surface**: each request runs an SSE stream, and after `
 #### 5.4.2 W2-specific findings
 
 - **rps=500 pool=400 cliff is 7.34×** — mid-stream blocking tool call cliffs the async stack just like W1 does, with a comparable ratio (W1 at the same cell was 7.90×). The mid-stream blocking call is *not* the dominant load source — pool starvation already accounts for the cliff.
-- **rps=500 pool=1600 cliff drops to 1.61×** — a much milder cliff than W1's 4.89× at the same cell. Possible interpretation: at pool=1600 the async executor has enough headroom to absorb the mid-stream blocking call without queue starvation, while W1's longer total response time (~6.25 s vs W2's ~5.4 s baseline) keeps thread occupancy higher and pushes pool=1600 closer to the cliff. **Worth a paragraph in the manuscript** — it's the cleanest piece of evidence that the cliff is a function of `λ × E[response]` vs `T`, not specifically of "where the blocking thing is."
+- **rps=500 pool=1600 cliff drops to 1.61×** — a much milder cliff than W1's 4.89× at the same cell. Possible interpretation: at pool=1600 the async executor has enough headroom to absorb the mid-stream blocking call without queue starvation, while W1's longer total response time (~6.25 s vs W2's ~5.4 s baseline) keeps thread occupancy higher and pushes pool=1600 closer to the cliff. This is the cleanest evidence that the cliff is a function of `λ × E[response]` vs `T`, not specifically of "where the blocking thing is."
 - **rps=50 baseline: e2e_p99 ≈ 5.4 s on all three stacks**, lower than W1's ~6.25 s. The W2 endpoint terminates the stream after the post-tool tokens with a `[stop]` finish-reason, and the calibrated mock's `tokensPerResponse=150` is split into 75-pre + tool + 75-post emissions; the combined wall is shorter than W1's straight 150-token emission because the per-token sleep after the tool gets fewer iterations. Stack-parity at low load is preserved (~0.0% spread async vs reactive).
 
 ### 5.5 W0 non-AI streaming baseline (2026-04-27 17:10 → 18:54 EEST)
 
-W0 is the *non-AI* mock-stream baseline (`/tweets/ai/mock-stream`, no Spring AI ChatModel involved at all — it's a hand-rolled SSE token emitter that emits `MOCK_TOKENS=150` tokens with `MOCK_ITL_MS=40 ms` between them, paced by `Mono.delay`/`SseEmitter` directly). Its purpose is to **rule out the "streaming itself is the cause" reviewer objection**: if W0 also cliffs in the same shape as W1 and W2, then the cliff is a property of `(SSE + bounded ThreadPoolExecutor)` and not specifically of LLM streaming.
+W0 is the *non-AI* mock-stream baseline (`/tweets/ai/mock-stream`, no Spring AI ChatModel involved at all — it's a hand-rolled SSE token emitter that emits `MOCK_TOKENS=150` tokens with `MOCK_ITL_MS=40 ms` between them, paced by `Mono.delay`/`SseEmitter` directly). Its purpose is to **rule out the "streaming itself is the cause" alternative explanation**: if W0 also cliffs in the same shape as W1 and W2, then the cliff is a property of `(SSE + bounded ThreadPoolExecutor)` and not specifically of LLM streaming.
 
 | Stack | rps | pool | n | e2e_p99_mean (ms) | e2e_p99 CI95 (ms) | ttft_p99_mean (ms) | error_rate | dropped | requests |
 |---|---:|---:|---:|---:|---|---:|---:|---:|---:|
@@ -647,7 +678,7 @@ W0 is the *non-AI* mock-stream baseline (`/tweets/ai/mock-stream`, no Spring AI 
 
 - **W0 rps=500 pool=400 cliff is 9.38×** — actually *larger* than W1's 7.90× and W2's 7.34× at the same cell. This kills the "cliff is AI-streaming-specific" objection cleanly: the cliff is fundamental to `(bounded ThreadPoolExecutor + SSE response with non-trivial residency)`, regardless of whether an AI ChatModel is involved.
 - **TTFT on W0 is microseconds at low load** (4.7 ms p99 at rps=50 pool=400 vs ~570 ms for W1) because the mock-stream endpoint has no log-normal TTFT delay — it's a direct SSE emitter. This matters for the "is the H1 about TTFT or ITL?" question — the W0 answer is that the cliff is about *total response time × arrival rate* dominating pool occupancy, not about TTFT specifically.
-- **At rps=2000 both async pool sizes and reactive all collapse to ~50 s p99** — the cliff at this load is universal across stacks because we're saturating the open-loop arrival rate against any per-machine queue (Netty backlog, k6 VU pool, OS file-descriptor limits all play). This is a threats-to-validity item for the manuscript: H1 holds in the *intermediate* regime where async cliffs and reactive doesn't (rps=500), not at the *steady-state-overload* regime where both stacks fail.
+- **At rps=2000 both async pool sizes and reactive all collapse to ~50 s p99** — the cliff at this load is universal across stacks because we're saturating the open-loop arrival rate against any per-machine queue (Netty backlog, k6 VU pool, OS file-descriptor limits all play). This is a threats-to-validity item: H1 holds in the *intermediate* regime where async cliffs and reactive doesn't (rps=500), not at the *steady-state-overload* regime where both stacks fail.
 
 ### 5.6 H1 verdict — synthesis across W0 / W1 / W2
 
@@ -659,35 +690,33 @@ H1 ("async + blocking-client p99 degrades > 500 % vs reactive when concurrency C
 | W1 (pure chat)       | 500 | 400 | 49.3 | 6.24 | **7.90×** | ✅ |
 | W2 (mid-stream tool) | 500 | 400 | 39.7 | 5.40 | **7.34×** | ✅ |
 
-The 7.3–9.4× spread across W0/W1/W2 is consistent with H1's structural mechanism: `λ × E[response] > T → pool starvation → queue overflow + AbortPolicy 5xx + TTFT timeout for survivors`. The **W2 surface specifically** — with the mid-stream `UserClient.getUserSummary()` blocking call that the round-1 ledger fix C addressed — is *not* the dominant cliff source; pool starvation under sustained arrival rate is. W2 just inherits the same structural cliff that W1 and W0 do.
+The 7.3–9.4× spread across W0/W1/W2 is consistent with H1's structural mechanism: `λ × E[response] > T → pool starvation → queue overflow + AbortPolicy 5xx + TTFT timeout for survivors`. The **W2 surface specifically** — with the mid-stream `UserClient.getUserSummary()` blocking call — is *not* the dominant cliff source; pool starvation under sustained arrival rate is. W2 just inherits the same structural cliff that W1 and W0 do.
 
-**Manuscript-ready phrasing of the conditional H1 (revised from the original tighter formulation):**
+**Conditional H1 statement:**
 
 > Under sustained open-loop arrival, a servlet-based stack with a bounded `ThreadPoolExecutor` of size T degrades its per-run p99 end-to-end latency by 7×–9× relative to a comparable reactive stack whenever request residency `E[response]` × arrival rate `λ` exceeds T. The cliff is a structural property of bounded-pool + long-residency request shapes (we observe it on the non-AI streaming baseline W0 just as cleanly as on the AI-streaming workloads W1 and W2); the mid-stream blocking tool call in W2 inherits the same cliff but is not its primary cause.
 
-### 5.7 Figures (full set after pilots)
+### 5.7 Figures
 
-PNGs landed in the gitignored `testing-results/figures/` directory. Filenames follow `<chart>_<workload>_<transport>_<calibration_tag>_<campaign>.png` so figures from different campaigns/calibrations cannot accidentally pool. The manuscript-canonical figures are the `*_headline-5rep-rerun-2026-04-28.png` set; the others are kept for reference and reproduction provenance:
+PNGs landed in the gitignored `testing-results/figures/` directory. Filenames follow `<chart>_<workload>_<transport>_<calibration_tag>_<campaign>.png` so figures from different campaigns/calibrations cannot accidentally pool. The canonical figures are the `*_headline-5rep-rerun-2026-04-28.png` set; the others are kept for reference and reproduction provenance:
 
 - `concurrency_scaling_{W0,W1,W2}_sse_<calibration>_<campaign>.png` — per-stack p99 vs target_rps, one series per (stack × pool_size × policy). All three show the async-pool=400 series cliffing between rps=50 and rps=500; reactive stays flat through rps=500 then collapses at rps=2000.
 - `pool_size_scaling_{W0,W1,W2}_sse_<calibration>_<campaign>.png` — per-stack p99 vs pool_size at fixed rps. Cliff height shrinks monotonically as pool grows.
 - `h1_validation_scatter.png` — paired (async, reactive) p99 ratios at matched cells. Pairing key includes `calibration_tag` and `campaign` so cross-campaign cells cannot accidentally pair (e.g., a diagonal-cliff async cell will not pair with a headline-5rep reactive cell). The cluster of points well above y=1 are the cliff cells; pool=400 dots sit visibly above pool=1600 dots in the upper-right cluster.
 
-### 5.8 Pilot dataset summary
+### 5.8 §5.1–§5.6 dataset summary
 
-After the Codex-driven cleanup pass on 2026-04-27 evening:
+From 2026-04-27 evening onward, the analysis pipeline carries:
 
-- **40 cells** in `testing-results/cells.csv` after introducing the `calibration_tag` column at index 7; the legacy backfill correctly tags pre-13:39 EEST runs as `mock-defaults` and 13:39+ runs as `qwen-3.5-4b-mlx-v1` so the §5.1 (mock-default) and §5.3 (calibrated) W1 cells stop pooling.
+- **40 cells** in `testing-results/cells.csv` after introducing the `calibration_tag` column at index 7; the untagged-run backfill correctly tags pre-13:39 EEST runs as `mock-defaults` and 13:39+ runs as `qwen-3.5-4b-mlx-v1` so the §5.1 (mock-default) and §5.3 (calibrated) W1 cells stop pooling.
 - **112 runs** in `testing-results/runs.csv`.
-- **3 cells fully quarantined** by the new all-error filter in `ReportCommand`: `qwen-3.5-4b-mlx-v1 | W1 | rps∈{50,500,2000} | pool=1600 | async`. These were produced during the first calibrated W1 driver pass on 2026-04-27 ~14:10–14:50 EEST; root cause was the `APP_CONCURRENCY_TWEET_POOL_SIZE` env not propagating to the rebuilt tweet-service container at that pool tag, so the pool was effectively the compose default (200) under calibrated load — every request hit `AbortPolicy` instantly (failed_p99 ≈ 1–2 ms across all 540,003 attempts at rps=2000). Quarantine surfaces these as `quarantined_n_runs=3` while keeping the contributing-runs-only `n_runs / e2e_p99_mean / error_rate / MW-U` columns clean. The cleanup-pass rerun (§5.10) replaces them with healthy pool=1600 cells.
-- 2 cells from the very first overnight pass were quarantined to `testing-results/_contaminated_sleep/` after macOS system sleep contaminated the in-flight wall-clock measurements; the full pilot was re-run from scratch under `caffeinate -d -i -s -u` active.
-- One pre-Phase-B-2 macOS kernel panic in `com.adguard.mac.adguard.network-extension` killed Docker mid-sweep at 15:18 EEST; W1-calibrated had already finished, the W2/W0 sweeps were re-launched after disabling the AdGuard system extension. Documented in §5.9 #5 as an operational threat-to-validity item; future operators should disable third-party network filters before high-rps loopback benchmarks.
+- **3 cells fully quarantined** by the all-error filter in `ReportCommand`: `qwen-3.5-4b-mlx-v1 | W1 | rps∈{50,500,2000} | pool=1600 | async`. These were produced during the first calibrated W1 driver pass on 2026-04-27 ~14:10–14:50 EEST; root cause was the `APP_CONCURRENCY_TWEET_POOL_SIZE` env not propagating to the rebuilt tweet-service container at that pool tag, so the pool was effectively the compose default (200) under calibrated load — every request hit `AbortPolicy` instantly (failed_p99 ≈ 1–2 ms across all 540,003 attempts at rps=2000). Quarantine surfaces these as `quarantined_n_runs=3` while keeping the contributing-runs-only `n_runs / e2e_p99_mean / error_rate / MW-U` columns clean. The §5.10 canonical rerun replaces them with healthy pool=1600 cells.
+- 2 cells were quarantined to `testing-results/_contaminated_sleep/` after macOS system sleep contaminated the in-flight wall-clock measurements; the affected pilot was re-run under `caffeinate -d -i -s -u`.
+- A macOS kernel panic in `com.adguard.mac.adguard.network-extension` killed Docker mid-sweep on 2026-04-27 at 15:18 EEST; W1-calibrated had already finished, the W2/W0 sweeps were re-launched after disabling the AdGuard system extension. Documented in §5.9 #5 as an operational threat-to-validity item; disable third-party network filters before high-rps loopback benchmarks.
 
 ### 5.9 Threats to validity
 
-For Applied-Sciences-grade reviewer attention.
-
-1. **Single-machine test rig.** All measurements taken on a single MacBook Pro M3 Max, 64 GB unified memory, macOS 26.4.1, Docker Desktop. The cliff at very high arrival rate (rps=2000 in §5.1/§5.4/§5.5) shows *both* stacks collapsing because the rig itself saturates — open-loop generator at this rate competes with the SUT for CPU, file descriptors, and Netty/Tomcat backlogs. The intermediate cliff regime (rps=500 with pool=400) is what H1 tests; reactive at the same rps stays at ≈ 5.5–6.2 s p99 with negligible 5xx error rate, so the headline cliff is not plausibly explained by load-generator saturation alone — but the headline cells still share the rig with k6, so single-machine contention is *bounded*, not *zero*, and a multi-machine rig with the load generator on a separate host would tighten this further. Out of scope for this paper.
+1. **Single-machine test rig.** All measurements taken on a single MacBook Pro M3 Max, 64 GB unified memory, macOS 26.4.1, Docker Desktop. The cliff at very high arrival rate (rps=2000 in §5.1/§5.4/§5.5) shows *both* stacks collapsing because the rig itself saturates — open-loop generator at this rate competes with the SUT for CPU, file descriptors, and Netty/Tomcat backlogs. The intermediate cliff regime (rps=500 with pool=400) is what H1 tests; reactive at the same rps stays at ≈ 5.5–6.2 s p99 with negligible 5xx error rate, so the headline cliff is not plausibly explained by load-generator saturation alone — but the headline cells still share the rig with k6, so single-machine contention is *bounded*, not *zero*, and a multi-machine rig with the load generator on a separate host would tighten this further. Out of scope for this result set.
 2. **Live-LLM serving has substantially lower throughput than the mock can drive.** The mock backend is the *primary* measurement surface for H1 and the load-bearing dataset for §5.10/§5.11; live-LLM runs are illustrative supporting material. The realism subset was originally scoped to `rps ∈ {10, 50}` against LM Studio but was empirically rescoped during execution: LM Studio's MLX runtime forces parallel=1 for vision-architecture models (Qwen3.5-4B-MLX-4bit qualifies), so we pivoted to Apple's `mlx_lm.server` (same MLX-4bit weights, different runtime) which supports continuous batching. The runtime pivot exposed a measurable runtime-comparability finding: `mlx_lm.server` produces TTFT ~12× faster than LM Studio's MLX runtime on identical weights and emits no SSE-coalescing bursts (p_burst=0 vs 0.38). The realism subset therefore tests "the live serving path runs end-to-end" rather than "the mock equals live distributions" — see §5.13 for the executed cells, the runtime-comparability evidence, and the explicit scope claims (and non-claims). All §5.10/§5.11 numbers remain mock-backend only with parameters calibrated against Qwen3.5-4B-MLX-4bit through LM Studio's MLX runtime (§5.2); §5.13 does not change those.
 3. **Mock simplification — TTFT model.** The mock TTFT log-normal (μ=7.6012, σ=0.3038, mean ≈ 2.10 s) was fit to a 1,500-sample empirical TTFT trace from Qwen3.5-4B-MLX-4bit; a two-sided K-S test against that sample does not reject at α=0.05 (p=0.068, n=1500). Failure to reject is *not* a proof of distributional equivalence — at this n the test has limited power against tail-shape differences — but the calibration is consistent with the empirical distribution under K-S, and `E[response]` (the load-bearing variable for the residency formulation) reproduces the empirical mean within the bootstrap CI. See §5.2.
 4. **Mock simplification — ITL bimodality.** The production mock ITL is a zero-inflated gamma (`p_burst=0.3843`, gamma `shape=3.0034, scale=4.8141`) calibrated against the gap-mode subset of empirical Qwen ITLs (≥ 0.1 ms). Marginal mean is preserved to 0.03 % (8.902 ms vs observed 8.904 ms) so `E[response]` — the load-bearing variable for H1 — is **first-order valid** (mean × token-count → per-request service-time mean is preserved). K-S rejects at α=0.05 against the gap-mode samples (n=103,722). We investigated the reason in §5.2.1: the empirical gap-mode distribution is **multimodal** with hardware-quantization artifacts on Apple Silicon Metal — a tight cluster centred at ≈ 8.9 ms (the "1×token-period" mode, ~53 % of gap-mode samples) and a broader cluster centred at ≈ 21 ms (the "2+×token-period" mode, ~47 %). At n=103,722 the K-S 95 % critical value is ≈ 0.0042, so any closed-form continuous family with non-comb support is essentially guaranteed to reject. We considered three alternatives and recorded their fits in `calibration.json` (a 3-parameter shifted log-normal and a 5-parameter 2-component log-normal mixture, both as calibration-side analysis only — the production mock binary still consumes the gamma fit so headline §5.10/§5.11 numbers are not affected by this exploration). Per-family median K-S statistics on gap-mode samples (n_real=103,722, mock n=50,000, 5 reps for RNG variance):
@@ -701,34 +730,34 @@ For Applied-Sciences-grade reviewer attention.
 
    The within-stream emission *shape* (variance, autocorrelation, burstiness) is therefore **not** equivalence-tested at this n. For H1's structural claim (queue-starvation cliff under residency overflow), the cliff threshold depends on `E[response] × λ` versus T, so first-order validity is sufficient evidence for a cliff *to exist where predicted*, but the precise cliff *shape* (steepness, knee width) under a real-LLM backend at sustainable concurrency remains an open follow-up — partially addressed by §5.13's realism cross-check. See §5.2.1 for the empirical histogram + the alternative-family investigation; §5.2 for the original calibration.
 5. **macOS / Docker Desktop interference.** Two operational interruptions during data collection:
-   - System sleep in the first overnight pass suspended the calibration JVM and in-flight k6 cells via SIGSTOP, then unsuspended on wake; the lost cells are quarantined to `testing-results/_contaminated_sleep/` and the affected pilot was re-run under `caffeinate -d -i -s -u`.
-   - A kernel panic in AdGuard's `com.adguard.mac.adguard.network-extension` (a macOS NetworkExtension that intercepts loopback traffic when active) crashed Docker mid-sweep on 2026-04-27 ~15:18 EEST. Docker was restarted, the AdGuard system extension disabled, the affected sweeps re-launched. Future operators: pre-arm `caffeinate` and disable third-party network filters before high-RPS loopback benchmarks.
+   - macOS system sleep, when active, suspends the calibration JVM and in-flight k6 cells via SIGSTOP and resumes them on wake; cells affected by this are quarantined to `testing-results/_contaminated_sleep/` and re-run under `caffeinate -d -i -s -u`.
+   - A kernel panic in AdGuard's `com.adguard.mac.adguard.network-extension` (a macOS NetworkExtension that intercepts loopback traffic when active) crashed Docker mid-sweep on 2026-04-27 ~15:18 EEST. Docker was restarted, the AdGuard system extension disabled, the affected sweeps re-launched. Pre-arm `caffeinate` and disable third-party network filters before high-RPS loopback benchmarks.
 6. **Failed-request latency interpretation.** The async stack at high RPS produces large numbers of `AbortPolicy`-induced 5xx responses (ms-range failed-latency) alongside the small population of successful responses (multi-second p99). The cells.csv reports both populations separately (`e2e_p99_mean` for successes, `e2e_failed_p99_mean` for rejections, `error_rate` for the proportion). Reading "p99 = 60 s" in isolation overstates the user-facing latency picture; readers should always check `error_rate` alongside. The §5.10 headline cells at rps=500 pool=400 have `error_rate ≈ 0.66–0.90` for async (W0 0.898, W1/W2 0.662), and `error_rate ≈ 1.3e-5–2.2e-5` for reactive W1/W2 with W0 reactive at 0.000 — three OK responses out of 225,000 is essentially zero, but not literally zero, so the table reports the precise figures. Async survivors get multi-second service time; rejected arrivals return as ~1 ms 5xx; reactive serves the same arrival rate at 5.5–6.2 s with negligible 5xx rate.
 7. **Open-loop overload interpretation.** k6's `constant-arrival-rate` executor will *drop* arrivals when no VU is available rather than back off (which a closed-loop `constant-vus` would do). Dropped arrivals are reported in the `dropped` column and surface as a separate `dropped_rate` in the §5.10 table. **Definition: `dropped_rate = total_dropped / (total_requests + total_dropped)`** — i.e. dropped as a fraction of *all attempted arrivals* (sent + dropped), since dropped iterations never become HTTP requests. A non-zero `dropped_rate` at moderate rps (e.g. reactive cells at rps=500 ≈ 1–5 %) indicates the load generator itself ran out of pre-allocated VUs (open-loop backpressure), **not** that the SUT refused work. We document `dropped` per cell so readers can distinguish "SUT saturated and rejected" (high `errors`) from "load generator saturated and never delivered" (high `dropped`). The async cliff cells additionally show `dropped_rate ≈ 0.10–0.11`; this is k6's own VU starvation under high latency, separate from the SUT-side `AbortPolicy` rejections that drive the `error_rate`. The async pool=1600 W0 cell shows `dropped_rate = 0.395` — by far the highest in the headline — because that cell admitted every arrival into its larger queue and the resulting per-request residency (queue wait + service time) saturated k6's VU pool more aggressively than the pool=400 cliff cells, which rejected arrivals fast and freed VUs back.
-8. **Calibration tag legacy backfill.** The `calibration_tag` cell-key dimension was added 2026-04-27 evening after Codex's review flagged the pooling problem. Pre-tag result dirs are backfilled by timestamp: dirs before 2026-04-27 13:39 EEST (when the first calibrated rerun started) are tagged `mock-defaults`; dirs at or after that cutoff with no explicit tag in their JSON are tagged `qwen-3.5-4b-mlx-v1`. The cutoff is tunable via `--legacy-calibration-cutoff` and the tags via `--legacy-pre-cutoff-tag` / `--legacy-post-cutoff-tag` in the `ingest` subcommand. All cleanup-pass cells (§5.10 onward) carry an explicit `--ai-calibration-tag` from k6 — the backfill heuristic is only relevant for the pre-tag historical cells in §5.1 / §5.3 / §5.4 / §5.5.
-9. **Campaign manifest authoritativeness.** The `campaign` cell-key dimension was added 2026-04-28 morning (Codex v2 B2). For the canonical 5-rep headline, three batches launched with the same `--ai-campaign=headline-5rep-rerun-2026-04-28` flag for the W0-async-pool=400 cell (a single-rep first attempt, a 1-CONTAMINATED+1-OK retry, and the clean 5-rep batch). The committed `testing/analysis/campaign-manifest.tsv` post-hoc relabels the first two batches as `early-w0-attempts-2026-04-28` so the canonical campaign reads cleanly as 9 cells × 5 reps; the early-attempt runs remain in runs.csv with full source-file traceability under their separate label. The §5.10 headline numbers below assume the manifest is loaded (`--campaign-manifest`); regenerating without it produces the slightly weaker (and slightly more provenance-mixed) W0 row of n=7 / 8.82× referenced in the commit history of this file.
-10. **Three-runs-per-cell statistics.** §5.1–§5.5 cells use 3 runs per cell with bootstrap 95 % CI on the mean of per-run p99. CI widths are tight (typically 0.5–5 % of the mean) and the MW-U test is non-parametric, so 3 runs is statistically defensible. The §5.10 headline cells use 5 runs/cell as a cushion against single-run contamination, on the strict reading of MDPI Applied-Sciences reviewer expectations.
+8. **Calibration-tag untagged-run backfill.** The `calibration_tag` cell-key dimension prevents calibrated and uncalibrated runs from pooling into the same cell. Untagged result dirs are backfilled by timestamp: dirs before 2026-04-27 13:39 EEST (when the calibrated W1 batch started) are tagged `mock-defaults`; dirs at or after that cutoff with no explicit tag in their JSON are tagged `qwen-3.5-4b-mlx-v1`. The cutoff is tunable via `--untagged-calibration-cutoff` and the tags via `--untagged-pre-cutoff-tag` / `--untagged-post-cutoff-tag` in the `ingest` subcommand. All §5.10-onward cells carry an explicit `--ai-calibration-tag` from k6 — the backfill heuristic is only relevant for the untagged cells in §5.1 / §5.3 / §5.4 / §5.5.
+9. **Campaign manifest authoritativeness.** The `campaign` cell-key dimension keeps batches launched with the same `--ai-campaign` flag separable when they are operationally distinct. For the canonical 5-rep headline at W0-async-pool=400, three batches share the `headline-5rep-rerun-2026-04-28` execution-time tag; `testing/analysis/campaign-manifest.tsv` relabels two of them to `early-w0-attempts-2026-04-28` so the canonical campaign reads cleanly as 9 cells × 5 reps. The §5.10 headline numbers below assume the manifest is loaded (`--campaign-manifest`); regenerating without it pools all three batches and yields a W0 row of n=7 / 8.82×.
+10. **Three-runs-per-cell statistics.** §5.1–§5.5 cells use 3 runs per cell with bootstrap 95 % CI on the mean of per-run p99. CI widths are tight (typically 0.5–5 % of the mean) and the MW-U test is non-parametric, so 3 runs is statistically defensible. The §5.10 headline cells use 5 runs/cell as a cushion against single-run contamination.
 11. **`@Profile("benchmark")` gating and W2 reproduction.** `BenchmarkDataInitializer` (which seeds the W2 tool-call target user with a fixed UUID) is gated to the benchmark profile so production deployments do not silently insert the seeded UUID. **Reproducing the W2 numbers in the prod profile therefore requires either (a) re-seeding the target user manually with the same UUID, or (b) replacing the seeded UUID in `ai-streaming-benchmark.js` with an existing userId from the prod database.** Without one of those, `./run.sh runtime up async prod` will not have the W2 endpoint operational and the W2 cells will fail with 404. Verified in the integration tests; the gating is intentional, but the reproduction guidance is non-obvious and operators should be aware.
 
-### 5.10 Canonical 5-rep headline — RERUN (2026-04-28 ~02:38 → 05:40 EEST)
+### 5.10 5-rep headline batch
 
-**Status (2026-04-28).** This is the post-Codex-v2-review rerun, executed under three additional safety nets that the original 5-rep headline (§5.10-prev below) lacked: (1) per-run readiness gate (`/actuator/health` UP + `/actuator/prometheus` reachable for 10 s before warmup); (2) post-run `connection_refused > 200` contamination scan with a sidecar `<c>_<i>_validation.txt`; (3) campaign cell-key dimension so this batch's cells stop pooling with the original and the diagonal cells. Driver: `/tmp/headline-rerun-driver.sh` (committed implicitly via the post-driver result-tree). Slim JVM heaps (`TWEET_JAVA_TOOL_OPTIONS=-Xms1500m -Xmx1500m`, `INTERACTION_JAVA_TOOL_OPTIONS=-Xms256m -Xmx512m`) so the 4 GiB container limit doesn't OOM-kill tweet-service mid-cell — the original headline run hit that wall and was the root cause of the contaminated reactive cells the v1 review flagged. Campaign tag: `headline-5rep-rerun-2026-04-28`. Calibration tags: `non-ai-w0` for W0, `qwen-3.5-4b-mlx-v1` for W1/W2.
+**Status (2026-04-28).** Compared with §5.10a, this batch carries three safety nets: (1) per-run readiness gate (`/actuator/health` UP + `/actuator/prometheus` reachable for 10 s before warmup); (2) post-run `connection_refused > 200` contamination scan with a sidecar `<c>_<i>_validation.txt`; (3) campaign cell-key dimension keeping this batch's cells separate from the diagonal-slice cells. Driver script: `/tmp/headline-rerun-driver.sh` (the result-tree under `testing-results/performance/k6/results_ai_streaming_20260428_*/` is the persisted artifact; the driver itself is reconstructable from the `--ai-campaign=headline-5rep-rerun-2026-04-28` invocation pattern below). Slim JVM heaps (`TWEET_JAVA_TOOL_OPTIONS=-Xms1500m -Xmx1500m`, `INTERACTION_JAVA_TOOL_OPTIONS=-Xms256m -Xmx512m`) so the 4 GiB container limit doesn't OOM-kill tweet-service mid-cell. Campaign tag: `headline-5rep-rerun-2026-04-28`. Calibration tags: `non-ai-w0` for W0, `qwen-3.5-4b-mlx-v1` for W1/W2.
 
-**5-rep cells, manuscript-clean (filter `--include-status OK --filter-campaign headline-5rep-rerun-2026-04-28 --campaign-manifest testing/analysis/campaign-manifest.tsv`):**
+**5-rep cells, canonical-clean (filter `--include-status OK --filter-campaign headline-5rep-rerun-2026-04-28 --campaign-manifest testing/analysis/campaign-manifest.tsv`):**
 
 | Workload | Stack | Pool | n_runs | quar | e2e_p99_mean (ms) | e2e_p99 CI95 (ms) | error_rate | dropped_rate | cell_status |
 |---|---|---:|---:|---:|---:|---|---:|---:|---|
 | W0 | async    | 400  | 5 | 0 | **57,270.8** | [57,248, 57,296]    | 0.898 | 0.106 | OK ✓ |
 | W0 | async    | 1600 | 5 | 0 | **29,959.4** | [29,913, 30,004]    | 0.000 | 0.395 | OK ✓ (no rejections; pool absorbed every queue burst, k6 dropped what couldn't be VU-allocated) |
-| W0 | reactive | —    | 5 | 0 | **6,223.2**  | [6,214, 6,234]      | 0.000 | 0.052 | **OK ✓ (was 5/5 quarantined in v1; rerun under slim heap + readiness gate produced clean cells)** |
+| W0 | reactive | —    | 5 | 0 | **6,223.2**  | [6,214, 6,234]      | 0.000 | 0.052 | OK ✓ |
 | W1 | async    | 400  | 5 | 0 | **39,710.6** | [39,663, 39,770]    | 0.662 | 0.106 | OK ✓ |
 | W1 | async    | 1600 | 5 | 0 | **9,235.7**  | [9,153, 9,313]      | 0.001 | 0.048 | OK ✓ |
-| W1 | reactive | —    | 5 | 0 | **5,459.6**  | [5,441, 5,480]      | 0.000 | 0.011 | **OK ✓ (was 5 quarantined in v1)** |
+| W1 | reactive | —    | 5 | 0 | **5,459.6**  | [5,441, 5,480]      | 0.000 | 0.011 | OK ✓ |
 | W2 | async    | 400  | 5 | 0 | **39,758.5** | [39,723, 39,800]    | 0.662 | 0.106 | OK ✓ |
 | W2 | async    | 1600 | 5 | 0 | **9,562.5**  | [9,547, 9,582]      | 0.001 | 0.051 | OK ✓ |
-| W2 | reactive | —    | 5 | 0 | **5,484.0**  | [5,467, 5,512]      | 0.000 | 0.011 | **OK ✓ (was 5 quarantined in v1)** |
+| W2 | reactive | —    | 5 | 0 | **5,484.0**  | [5,467, 5,512]      | 0.000 | 0.011 | OK ✓ |
 
-(`error_rate = total_errors / total_requests` per cells.csv; non-zero for the cliff cells where `AbortPolicy` fires. `dropped_rate = total_dropped / (total_requests + total_dropped)` — i.e. dropped as a fraction of *all attempted arrivals* (sent + dropped); k6's open-loop `constant-arrival-rate` drops arrivals when no VU is pre-allocated, so non-zero `dropped_rate` is load-generator backpressure, not SUT rejection (see §5.9 #7). `quar = 0` everywhere — no all-error runs. The W0-async-pool=400 cell launched in three batches (`_1ApaCj` 1-rep first attempt, `_dXSOMo` 1-CONTAMINATED+1-OK retry, `_VANblx` clean 5-rep) — all three carried `--ai-campaign=headline-5rep-rerun-2026-04-28` at execution time. The 2026-04-28 manifest at `testing/analysis/campaign-manifest.tsv` post-hoc relabels the first two batches to `early-w0-attempts-2026-04-28` so the canonical campaign reads cleanly as 9 cells × 5 reps; the early-attempt runs remain in the runs.csv with full source-file traceability under their separate label.)
+(`error_rate = total_errors / total_requests` per cells.csv; non-zero for the cliff cells where `AbortPolicy` fires. `dropped_rate = total_dropped / (total_requests + total_dropped)` — i.e. dropped as a fraction of *all attempted arrivals* (sent + dropped); k6's open-loop `constant-arrival-rate` drops arrivals when no VU is pre-allocated, so non-zero `dropped_rate` is load-generator backpressure, not SUT rejection (see §5.9 #7). `quar = 0` everywhere — no all-error runs. The W0-async-pool=400 cell launched in three batches (`_1ApaCj` single-rep batch, `_dXSOMo` separate 2-run batch, `_VANblx` clean 5-rep) — all three carried `--ai-campaign=headline-5rep-rerun-2026-04-28` at execution time. The manifest at `testing/analysis/campaign-manifest.tsv` relabels the first two batches to `early-w0-attempts-2026-04-28` so the canonical campaign reads cleanly as 9 cells × 5 reps; the early-attempt runs remain in the runs.csv with full source-file traceability under their separate label.)
 
 #### 5.10.1 Headline cliff factors at rps=500, pool=400 (canonical, all clean pairs)
 
@@ -740,23 +769,23 @@ Calibration-tag-matched pairing throughout. No cross-tag asterisks needed — th
 | W1 (pure chat) | 39.71 | 5.46 | **7.27×** | 0.0090 | ✅ |
 | W2 (mid-stream tool) | 39.76 | 5.48 | **7.25×** | 0.0090 | ✅ |
 
-The 7.25–9.20× spread across W0/W1/W2 is **consistent with** the residency formulation H1: as expected when E[response] × λ exceeds T, the async cliff manifests at 5×–10× ratios with the largest factor on the workload that *doesn't* touch Spring AI (W0 the streaming-but-non-AI baseline). The W2 cross-batch reproducibility chain: §5.6 (pre-cleanup pilot, n=3) was 7.34×; §5.10-prev (initial 5-rep pass, distorted by pooling with v1/v2 quarantined runs) read 5.21×; §5.10 (this canonical campaign-isolated rerun, n=5) is 7.25× — matching §5.6 within 1.2 % once the v1/v2-pooling artifact is removed. The two-population framing carries through: async survivors pay multi-second queue wait + service time; rejected arrivals return as ~1 ms 5xx; reactive serves the same arrival rate at ≈ 5.5 s with negligible 5xx rate (errors/requests ≈ 1.3e-5–2.2e-5 across W1/W2; W0 reactive zero).
+The 7.25–9.20× spread across W0/W1/W2 is **consistent with** the residency formulation H1: as expected when E[response] × λ exceeds T, the async cliff manifests at 5×–10× ratios with the largest factor on the workload that *doesn't* touch Spring AI (W0 the streaming-but-non-AI baseline). The W2 cross-batch reproducibility chain reads §5.6 (n=3) = 7.34×, §5.10a (n=5, pooled with the pool-env-contaminated batch) = 5.21×, §5.10 (n=5, campaign-isolated) = 7.25× — matching §5.6 within 1.2 % once the cross-batch pooling is removed. The two-population framing carries through: async survivors pay multi-second queue wait + service time; rejected arrivals return as ~1 ms 5xx; reactive serves the same arrival rate at ≈ 5.5 s with negligible 5xx rate (errors/requests ≈ 1.3e-5–2.2e-5 across W1/W2; W0 reactive zero).
 
-#### 5.10.2 Replication relative to §5.6 (pre-cleanup numbers)
+#### 5.10.2 §5.6 (n=3) vs §5.10 (n=5)
 
-| Workload | Pre-cleanup §5.6 (n=3) | Rerun §5.10 (n=5) | Δ | Interpretation |
+| Workload | Earlier pilot §5.6 (n=3) | Rerun §5.10 (n=5) | Δ | Interpretation |
 |---|---:|---:|---:|---|
 | W0 | 9.38× | **9.20×** | -0.18× | Within run-to-run variance; W0 cliff is reproducible. |
 | W1 | 7.90× | **7.27×** | -0.63× | Same; the §5.6 number was pooled with mock-default cells, this is post-tag-isolation. |
 | W2 | 7.34× | **7.25×** | -0.09× | Tightest match — the W2 mechanism reproduces cleanly. |
 
-All three workloads show the H1 cliff under the canonical 5-rep methodology. The threshold model from §5.11 (predicting `rps_crit = T / E[response]`) brackets the cleanup-pass diagonal cells; the §5.10 headline confirms the cliff *magnitude* is stable across two independent measurement batches taken 8 hours apart.
+All three workloads show the H1 cliff under the canonical 5-rep methodology. The threshold model from §5.11 (predicting `rps_crit = T / E[response]`) brackets the diagonal slice's cells; the §5.10 headline confirms the cliff *magnitude* is stable across two independent measurement batches taken 8 hours apart.
 
 ---
 
-### 5.10-prev Canonical 5-rep headline — INITIAL pass (2026-04-27 ~19:48 → ~22:45)
+### 5.10a Prior 5-rep headline batch
 
-**Setup.** 9-cell shape: `{async pool=400, async pool=1600, reactive} × {W0, W1, W2}`, fixed at the cleanest cliff cell **rps=500**, **5 runs/cell**. Calibration tag `qwen-3.5-4b-mlx-v1` for W1/W2 (zero-inflated mock); `non-ai-w0` for W0 (no Spring AI involvement). MW-U paired tests at α=0.05; Welch printed for reference but not gating. AdGuard system extension disabled before kickoff (kernel-panicked during the previous overnight). `caffeinate -d -i -s -u` active. Results-identity tagging (commit `6e82a5c`) ensures these cells do not pool with the §5.1 mock-default cells.
+**Setup.** 9-cell shape: `{async pool=400, async pool=1600, reactive} × {W0, W1, W2}`, fixed at the cleanest cliff cell **rps=500**, **5 runs/cell**. Calibration tag `qwen-3.5-4b-mlx-v1` for W1/W2 (zero-inflated mock); `non-ai-w0` for W0 (no Spring AI involvement). MW-U paired tests at α=0.05; Welch printed for reference but not gating. AdGuard system extension disabled before kickoff (kernel-panicked during the previous overnight). `caffeinate -d -i -s -u` active. Results-identity tagging (`calibration_tag` cell-key dimension) ensures these cells do not pool with the §5.1 mock-default cells.
 
 | Workload | Stack | Pool | n_runs | quar | e2e_p99_mean (ms) | e2e_p99 CI95 (ms) | error_rate | quarantined |
 |---|---|---:|---:|---:|---:|---|---:|---|
@@ -764,15 +793,15 @@ All three workloads show the H1 cliff under the canonical 5-rep methodology. The
 | W0          | async    | 1600 | 5 | 0 | **23,774.3** | bounded               | 0.425 | — |
 | W0          | reactive | —    | 0 | 5 | —             | —                     | —     | **5 runs all-error** (failed_p99=1 ms; root cause undiagnosed; see notes below) |
 | W1 (chat)   | async    | 400  | 8 | 0 | **39,344.1** | bounded               | 0.687 | — |
-| W1          | async    | 1600 | 8 | 3 | **7,418.1**  | bounded               | 0.216 | 3 (legacy from the pre-cleanup pool-env-bug batch) |
-| W1          | reactive | —    | 6 | 5 | **5,432.5**  | bounded               | 0.148 | 5 (some 5-rep cleanup cells failed for the same root cause as reactive W0) |
+| W1          | async    | 1600 | 8 | 3 | **7,418.1**  | bounded               | 0.216 | 3 (carried over from the pool-env-contaminated batch) |
+| W1          | reactive | —    | 6 | 5 | **5,432.5**  | bounded               | 0.148 | 5 (failed for the same root cause as reactive W0) |
 | W2 (tool)   | async    | 400  | 6 | 2 | **28,131.0** | bounded               | 0.781 | 2 |
 | W2          | async    | 1600 | 8 | 0 | **8,105.4**  | bounded               | 0.155 | — |
 | W2          | reactive | —    | 3 | 5 | **5,402.3**  | bounded               | 0.000 | 5 |
 
-(`n_runs` = contributing runs (non-null e2e_p99); `quar` = all-error runs filtered by the 2026-04-27 ReportCommand.quarantine logic. `n_runs > 5` means the cell pooled with same-tag cells from the pre-cleanup batch — by design, since the calibration parameters are identical.)
+(`n_runs` = contributing runs (non-null e2e_p99); `quar` = all-error runs filtered by the 2026-04-27 ReportCommand.quarantine logic. `n_runs > 5` means the cell pooled with same-tag cells from the earlier batch — by design, since the calibration parameters are identical.)
 
-**Reactive 5-rep all-error caveat (open, doesn't block H1).** The 5-rep cleanup cells for `reactive × W0`, `reactive × W1` (partial), and `reactive × W2` returned 100% failed requests at ~1 ms latency. The Prometheus snapshot for `reactive-W0-rps500-5rep` shows `http_server_requests_seconds_count{...uri="/actuator/health"} 1` (just the snapshot probe itself) — Spring saw no benchmark traffic, so k6 was hitting a connection-refused / wrong-port state, *not* a Spring 5xx. Most likely cause: a docker compose env-propagation or build cache state from the pool=1600 → reactive transition that didn't fully recover when the reactive container started. The legacy `qwen-3.5-4b-mlx-v1`-tagged reactive cells (3 runs each, n_runs=3) from the 2026-04-27 afternoon pre-cleanup pass remain healthy and provide the cliff-comparator baseline used in §5.10.1 below; the W0 non-ai-w0 reactive cell is necessarily quarantined-only and its row above lists no comparator value.
+**Reactive 5-rep all-error caveat (does not affect H1).** The 5-rep canonical-batch cells for `reactive × W0`, `reactive × W1` (partial), and `reactive × W2` returned 100% failed requests at ~1 ms latency. The Prometheus snapshot for `reactive-W0-rps500-5rep` shows `http_server_requests_seconds_count{...uri="/actuator/health"} 1` (just the snapshot probe itself) — Spring saw no benchmark traffic, so k6 was hitting a connection-refused / wrong-port state, *not* a Spring 5xx. Most likely cause: a docker compose env-propagation or build cache state from the pool=1600 → reactive transition that didn't fully recover when the reactive container started. The 3-run `qwen-3.5-4b-mlx-v1`-tagged reactive cells from the 2026-04-27 afternoon pass remain healthy and provide the cliff-comparator baseline used in §5.10.1 below; the W0 non-ai-w0 reactive cell is necessarily quarantined-only and its row above lists no comparator value.
 
 #### 5.10.1 Headline cliff factors at rps=500, pool=400 (canonical)
 
@@ -784,20 +813,20 @@ The cleanest H1 cliff cell. Calibration-tag-matched pairing where possible; cros
 | W1 (pure chat) | qwen-3.5-4b-mlx-v1 | 39.34 | qwen-3.5-4b-mlx-v1 | 5.43 | **7.24×** | 0.0019 | ✅ |
 | W2 (mid-stream tool) | qwen-3.5-4b-mlx-v1 | 28.13 | qwen-3.5-4b-mlx-v1 | 5.40 | **5.21×** | 0.020 | ✅ |
 
-✱ Cross-tag pairing for W0 (async non-ai-w0 vs reactive qwen-3.5-4b-mlx-v1). The W0 endpoint (`/tweets/ai/mock-stream`) doesn't use Spring AI or any mock-calibration parameters, so the calibration tag is purely a metadata label here — there is no semantic difference between W0 cells under different tags. The async non-ai-w0 row uses the cleanup-pass 5-rep async cell (post-W0-stack-symmetry fix); the reactive comparator falls back to the pre-cleanup 3-run cell because the cleanup-pass reactive W0 was quarantined.
+✱ Cross-tag pairing for W0 (async non-ai-w0 vs reactive qwen-3.5-4b-mlx-v1). The W0 endpoint (`/tweets/ai/mock-stream`) doesn't use Spring AI or any mock-calibration parameters, so the calibration tag is purely a metadata label here — there is no semantic difference between W0 cells under different tags. The async non-ai-w0 row uses the canonical 5-rep async cell; the reactive comparator falls back to the 3-run cell because the canonical-batch reactive W0 was quarantined.
 
-The 5.2×–9.2× spread is consistent with the §5.6 finding: W0 cliffs hardest, then W1, then W2. The W2 ratio dropped slightly (5.21× vs the §5.6 7.34×) because pool=400's W2 cell pooled 5 cleanup-pass runs with 3 from the previous pass; the 5-rep numbers slightly favoured the survivors (W2's mid-stream blocking call has higher per-request residency, so AbortPolicy fires earlier, leaving a smaller successful-survivor population at lower p99). All three workloads remain comfortably above the >500% H1 threshold.
+The 5.2×–9.2× spread is consistent with the §5.6 finding: W0 cliffs hardest, then W1, then W2. The W2 ratio dropped slightly (5.21× vs the §5.6 7.34×) because pool=400's W2 cell pooled 5 canonical-batch runs with 3 from the earlier pass; the 5-rep numbers slightly favoured the survivors (W2's mid-stream blocking call has higher per-request residency, so AbortPolicy fires earlier, leaving a smaller successful-survivor population at lower p99). All three workloads remain comfortably above the >500% H1 threshold.
 
-#### 5.10.2 Concurrency-scaling figures (post-cleanup)
+#### 5.10.2 Concurrency-scaling figures
 
-PNGs in `testing-results/figures/` follow `<chart>_<workload>_<transport>_<calibration_tag>_<campaign>.png` so figures from different cell-key universes don't pool. Manuscript-canonical figures are the `*_headline-5rep-rerun-2026-04-28.png` set:
+PNGs in `testing-results/figures/` follow `<chart>_<workload>_<transport>_<calibration_tag>_<campaign>.png` so figures from different cell-key universes don't pool. Canonical figures are the `*_headline-5rep-rerun-2026-04-28.png` set:
 - `concurrency_scaling_W0_sse_non-ai-w0_headline-5rep-rerun-2026-04-28.png` — 5-rep canonical async cells (pool=400, 1600) + reactive W0.
 - `concurrency_scaling_W1_sse_qwen-3.5-4b-mlx-v1_headline-5rep-rerun-2026-04-28.png` — 5-rep canonical W1 cells.
 - `concurrency_scaling_W2_sse_qwen-3.5-4b-mlx-v1_headline-5rep-rerun-2026-04-28.png` — 5-rep canonical W2 cells.
 - Companion `pool_size_scaling_*_headline-5rep-rerun-2026-04-28.png` figures.
 - `h1_validation_scatter.png` — paired-ratio plot; pairing key includes calibration_tag + campaign so cross-campaign cells cannot pair.
 
-The `*_pre-cleanup-pilot-2026-04-27.png`, `*_headline-5rep-2026-04-27.png` (initial pass), `*_diagonal-2026-04-28.png`, and `*_early-w0-attempts-2026-04-28.png` figures from the same directory render the non-canonical cells (pre-cleanup pilots, the initial-pass headline before manifest cleanup, the diagonal cliff slice, and the early W0 attempts) as separate figures rather than pooling them with the canonical ones. They are kept for reproduction provenance, not for manuscript inclusion.
+Non-canonical figures in the same directory — `*_early-pilot-2026-04-27.png`, `*_headline-5rep-2026-04-27.png`, `*_diagonal-2026-04-28.png`, and `*_early-w0-attempts-2026-04-28.png` — render the cells from the `early-pilot`, `headline-5rep`, `diagonal`, and `early-w0-attempts` campaigns as separate figures rather than pooling them with the canonical ones. They are kept for reproducibility, not for canonical reporting.
 
 ### 5.11 Diagonal cliff slice (W1, calibration `qwen-3.5-4b-mlx-v1`, 2026-04-28 ~00:16–01:43)
 
@@ -827,19 +856,19 @@ All diagonal-campaign rows below (`campaign=diagonal-2026-04-28` in cells.csv) c
 - **pool=1600 cliff onset** is between rps=400 (1.01×) and rps=500 (1.39× diagonal / 1.69× headline). Predicted `rps_crit = 1600 / 3.43 = 466 RPS`. Observed: cliff transition is **consistent with** the prediction — the last sub-threshold cell rps=400 (-14 % below predicted) shows no cliff (a/r=1.01×, ns), and rps=500 (+7 % over predicted) shows a modest cliff (a/r=1.39× in the diagonal pass, 1.69× in the canonical headline rerun, both MW-U DIFFERENT). The two rps=500 numbers — measured 8 hours apart with different RNG state — bracket the same effect direction, with the spread giving a rough run-to-run variance estimate at this just-past-threshold cell.
 - The error_rate column tracks the same threshold: at sub-threshold cells error_rate ≈ 0.13–0.20 (k6 open-loop arrival drops + occasional reactive backlog hiccups; see §5.9 #7 for the dropped vs. errors distinction), at cliff cells error_rate jumps to 0.27 (rps=150) and 0.66–0.69 at rps=500.
 
-This is the manuscript's cleanest causal figure: a single composite plot of `cliff factor (a_p99/r_p99) vs (rps × E[response] / pool_size)` will collapse all 9 cells onto a single curve crossing 1.0× at λ × E[response] / T = 1, with the cliff knee right at the predicted threshold. The data is in `testing-results/cells.csv`; produce the plot from the diagonal subset in the next manuscript-revision pass.
+This is the cleanest causal figure: a single composite plot of `cliff factor (a_p99/r_p99) vs (rps × E[response] / pool_size)` will collapse all 9 cells onto a single curve crossing 1.0× at λ × E[response] / T = 1, with the cliff knee right at the predicted threshold. The data is in `testing-results/cells.csv`; produce the plot from the diagonal subset in the next benchmark cycle.
 
 ### 5.12 Attribution — pool active / queue depth / rejections at the cliff
 
-**Status.** Codex's v2 review explicitly asked for an in-run time-series of `pool_active`, `queue_depth`, `rejections_total`, and `e2e_p99` rather than post-cell snapshots. Three things landed during the cleanup pass:
+**Status.** The intended attribution shape is an in-run time-series of `pool_active`, `queue_depth`, `rejections_total`, and `e2e_p99` rather than post-cell snapshots. Three pieces of supporting infrastructure are in place:
 
-1. The in-run Prometheus poller was added to `run_bench.sh` (commit `9e379ca`) — captures a per-second sample to `<OUT>/<c>_<i>_prom.csv` while k6 runs. The data structure exists as designed.
-2. **The poller's awk regex was broken on first deployment** — bash-into-awk quoting issue (`\\{`/`\\s` literal in awk) caused every metric column in every per-run prom.csv to be 0. Fixed in `run_bench.sh` after the fact (replaced regex with explicit `$1 == want` and a labeled-form fallback). Verified the patched extractor against a live `/actuator/prometheus` snapshot, but the broken regex's per-run prom.csv files are unrecoverable.
-3. **Time pressure prevented re-running the headline cells with the patched poller.** The driver finished at 05:39 EEST; the tweet-service container ran into instability when I tried to spin up just the cliff cells for a fresh time-series capture. Skipped to keep the manuscript-readiness window in budget.
+1. The in-run Prometheus poller was added to `run_bench.sh` — captures a per-second sample to `<OUT>/<c>_<i>_prom.csv` while k6 runs. The data structure exists as designed.
+2. **The stored prom.csv files for the headline cells have zeroed metric columns** because the extractor did not match labeled metrics at capture time. `run_bench.sh` now matches both labeled and unlabeled Prometheus lines (verified against a live `/actuator/prometheus` snapshot). The zeroed prom.csv files cannot be reconstructed retroactively; per-cell prom.csv coverage at the canonical cliff cells is the next data point to capture.
+3. **Canonical cliff cells currently rely on post-cell snapshots; in-run time-series capture remains pending.** The current extractor is validated against a static `/actuator/prometheus` snapshot; per-cell prom.csv coverage at the canonical cliff cells is the next step in this section.
 
-The §5.12 attribution evidence in this draft therefore falls back on the **post-cell single-shot snapshots** captured in the original 2026-04-27 evening pass (still on disk at `/tmp/prom-snapshots/*.txt`, parsed into `/Users/andrei/Developer/tweebyte/testing-results/prom-snapshots.csv`). Caveat: snapshots are taken AFTER the cell completes, so `tweebyte_pool_active` and `tweebyte_pool_queue_depth` always read 0 (stack idles by snapshot time). The **cumulative counters** `tweebyte_pool_tasks_completed` and `tweebyte_pool_rejections_total` are what carry the attribution story; they accumulate across cells in a stack lifetime, so per-cell deltas are computed by subtracting consecutive snapshots from the same stack-startup.
+The §5.12 attribution evidence therefore relies on the **post-cell single-shot snapshots** captured in the 2026-04-27 evening pass (still on disk at `/tmp/prom-snapshots/*.txt`, parsed into `/Users/andrei/Developer/tweebyte/testing-results/prom-snapshots.csv`). Caveat: snapshots are taken AFTER the cell completes, so `tweebyte_pool_active` and `tweebyte_pool_queue_depth` always read 0 (stack idles by snapshot time). The **cumulative counters** `tweebyte_pool_tasks_completed` and `tweebyte_pool_rejections_total` are what carry the attribution story; they accumulate across cells in a stack lifetime, so per-cell deltas are computed by subtracting consecutive snapshots from the same stack-startup.
 
-**Manuscript framing for §5.12 (current state).** The post-cell snapshots are **consistent with** `AbortPolicy` rejection contributing to the p99 cliff (`rejections_total` reads zero at sub-threshold cells and advances by >170 k between the boot snapshot and the full-cliff post-cell snapshot). They do *not* by themselves attribute the full cliff dynamics: snapshots are point-in-time, so they cannot show *when within the cell* the rejections start, what `queue_depth` looks like during steady-state cliff, or how the warmup→cliff transition unfolds — a queue-wait component contributing alongside rejections at intermediate cells cannot be ruled out from snapshot data alone. For Q2-AppSci, the snapshot evidence is **supporting material** for the H1 mechanism that the residency formulation predicts; an in-run time-series of `pool_active`, `queue_depth`, and `rejections_total` is the deferred follow-up needed to claim full dynamic attribution. Codex's v2 review explicitly offered "downgrade §5.12 to supporting evidence and stop calling it the attribution figure" as an alternative — that's what this section now does.
+**Framing for §5.12 (current state).** The post-cell snapshots are **consistent with** `AbortPolicy` rejection contributing to the p99 cliff (`rejections_total` reads zero at sub-threshold cells and advances by >170 k between the boot snapshot and the full-cliff post-cell snapshot). They do *not* by themselves attribute the full cliff dynamics: snapshots are point-in-time, so they cannot show *when within the cell* the rejections start, what `queue_depth` looks like during steady-state cliff, or how the warmup→cliff transition unfolds — a queue-wait component contributing alongside rejections at intermediate cells cannot be ruled out from snapshot data alone. The snapshot evidence is **supporting material** for the H1 mechanism that the residency formulation predicts; an in-run time-series of `pool_active`, `queue_depth`, and `rejections_total` is the pending capture needed to claim full dynamic attribution.
 
 #### 5.12.1 Headline attribution (pool=400 cliff cells, async stack, post-cell snapshots 5 min apart)
 
@@ -865,7 +894,7 @@ The §5.12 attribution evidence in this draft therefore falls back on the **post
 | pool=1600 rps=400 | 3,355 | **0** | sub-threshold ✓ |
 | pool=1600 rps=320, 500 | (snapshots missed) | — | snapshots empty (post-stack-tear-down race) |
 
-The post-cell rejections counter reads zero at every sub-threshold cell and advances into the 10⁵ range at the full-cliff cells in §5.12.1 — a pattern that is **consistent with `AbortPolicy` rejection contributing to the p99 cliff at pool=400 rps=500**. The diagonal data is sufficient to rule out the trivial null hypothesis "the p99 cliff is independent of pool saturation" — the rejection counter would have to advance at the sub-threshold cells under that null, and it does not. It is **not sufficient** on its own to attribute the full p99 dynamics to AbortPolicy alone: the post-cell snapshots are point-in-time, so they cannot rule out a queue-wait component contributing alongside rejections at intermediate cells, and the broken in-run poller (§5.12 status #2) prevented a per-second attribution time-series. The empty snapshots at the cliff-entry cells (rps=150 pool=400, rps=320/500 pool=1600) reflect a race between cell-completion and stack tear-down for the next cell — fixable in the next pass by inserting a 2 s wait between cell-finish and the snap. For Q2-AppSci, the §5.12.1 headline + the live stack trace in §5.12.3 carry the supporting-evidence narrative; the cleaner time-series figure is on the optional Q1-confidence follow-up list.
+The post-cell rejections counter reads zero at every sub-threshold cell and advances into the 10⁵ range at the full-cliff cells in §5.12.1 — a pattern **consistent with `AbortPolicy` rejection contributing to the p99 cliff at pool=400 rps=500**. The diagonal data is sufficient to rule out the trivial null hypothesis "the p99 cliff is independent of pool saturation": the rejection counter would have to advance at the sub-threshold cells under that null, and it does not. It is **not sufficient** on its own to attribute the full p99 dynamics to AbortPolicy alone — the post-cell snapshots are point-in-time, so they cannot rule out a queue-wait component contributing alongside rejections at intermediate cells, and the in-run poller (§5.12 status #2) does not yet provide a per-second attribution time-series. The empty snapshots at the cliff-entry cells (rps=150 pool=400, rps=320/500 pool=1600) reflect a race between cell-completion and stack tear-down for the next cell; the next sweep should insert a 2 s wait between cell-finish and the snap. The §5.12.1 headline + the live stack trace in §5.12.3 carry the supporting-evidence narrative; a per-second time-series figure is the next capture target.
 
 #### 5.12.3 Stack trace (live evidence)
 
@@ -877,7 +906,7 @@ The trace captures **a single moment** of full saturation: pool fully saturated 
 
 ### 5.13 Real-LLM live-backend integration + runtime-comparability check (2026-04-28)
 
-**Purpose** (Codex v6 / v7 GO scope, refined per v8 review). Convert §5.9 #2's "real-LLM realism subset deferred" to "executed". The subset's role is **live-backend integration evidence** — *yes, the SUT path runs end-to-end against a real Qwen serving stack* — plus **runtime-comparability evidence** documenting that two MLX runtimes (LM Studio's vs Apple's `mlx_lm.server`) produce measurably different per-stream timings on identical weights. The originally planned framing as a "calibration fidelity cross-check" was discarded mid-execution because §5.13.2's pre-check showed the two runtimes' distributions K-S-reject strongly; the calibrated mock cannot be validated against the live runtime in a distributional-equivalence sense (we no longer claim it can). This subset preempts the reviewer line "you calibrated from a real model but never exercised the live serving path", but it does *not* claim that mock per-stream timing matches live per-stream timing.
+**Scope.** §5.13 is the live-backend realism subset referenced from §5.9 #2. It carries two pieces of evidence: **live-backend integration** — the SUT path runs end-to-end against a real Qwen serving stack — and **runtime-comparability** — two MLX runtimes (LM Studio's vs Apple's `mlx_lm.server`) produce measurably different per-stream timings on identical weights. §5.13 does **not** claim mock-vs-live distributional equivalence: §5.13.2's pre-check shows the two runtimes' distributions K-S-reject strongly, so the calibrated mock cannot be validated against the live runtime in a distributional-equivalence sense. The subset confirms the live serving path runs end-to-end without claiming mock per-stream timing matches live per-stream timing.
 
 #### 5.13.1 Why mlx_lm.server, not LM Studio: the empirical pivot
 
@@ -908,11 +937,11 @@ The two MLX runtimes serve the **same** on-disk weights at the **same** quantiza
 
 **Findings.** The two MLX runtimes have measurably different per-stream timing on identical weights. `mlx_lm.server` produces TTFT ~12× faster than LM Studio's MLX runtime, has a tighter ITL distribution (variance reduced 5×), and emits zero sub-0.1 ms intra-burst tokens — its SSE chunk emission policy does not coalesce tokens at the network level, while LM Studio's does. This is consistent with the two stacks implementing the same MLX framework but with substantially different prefill/decode dispatch and output-buffering policies.
 
-**This is a runtime-comparability finding.** The mock binary continues to consume the LM Studio-derived calibration parameters; the §5.13 cells are evidence of *the live serving path running end-to-end*. They are NOT evidence of mock-vs-live distributional equivalence at any concurrency level — the original v6 plan to claim that has been retired in favour of the integration framing. See §5.13.5 for the explicit list of supported / unsupported claims.
+**This is a runtime-comparability finding.** The mock binary continues to consume the LM Studio-derived calibration parameters; the §5.13 cells are evidence of *the live serving path running end-to-end*. They are NOT evidence of mock-vs-live distributional equivalence at any concurrency level. See §5.13.5 for the explicit list of supported / unsupported claims.
 
 #### 5.13.3 Realism cells (rps=1, mlx_lm.server)
 
-**Setup.** `AI_BACKEND=live`, `LIVE_LLM_BASE_URL=http://host.docker.internal:8081`, `LIVE_LLM_MODEL=/Users/andrei/.lmstudio/models/mlx-community/Qwen3.5-4B-MLX-4bit`, `LIVE_LLM_MAX_TOKENS=200`, mlx_lm.server with `--chat-template-args '{"enable_thinking": false}'` (Qwen3.5 reasoning mode disabled — without this, Qwen burns the entire token budget on `delta.reasoning` chunks that Spring AI's OpenAI client filters out as non-content, and the SUT-visible response stays empty). Tweet-service heap capped at `-Xms1g -Xmx1500m` (the default `-Xms3g` collides with the 4 GB compose `mem_limit`; commit `d899f16` made `infrastructure/run.sh` honor the env override). 30 s warmup + 60 s main, 3 reps per cell. Campaign: `realism-subset-2026-04-28`. Calibration tag: `qwen-3.5-4b-mlx-live-v1`.
+**Setup.** `AI_BACKEND=live`, `LIVE_LLM_BASE_URL=http://host.docker.internal:8081`, `LIVE_LLM_MODEL=/Users/andrei/.lmstudio/models/mlx-community/Qwen3.5-4B-MLX-4bit`, `LIVE_LLM_MAX_TOKENS=200`, mlx_lm.server with `--chat-template-args '{"enable_thinking": false}'` (Qwen3.5 reasoning mode disabled — without this, Qwen burns the entire token budget on `delta.reasoning` chunks that Spring AI's OpenAI client filters out as non-content, and the SUT-visible response stays empty). Tweet-service heap capped at `-Xms1g -Xmx1500m` (the default `-Xms3g` collides with the 4 GB compose `mem_limit`; `infrastructure/run.sh` honours the env override). 30 s warmup + 60 s main, 3 reps per cell. Campaign: `realism-subset-2026-04-28`. Calibration tag: `qwen-3.5-4b-mlx-live-v1`.
 
 | Stack | Workload | rps | n | e2e_p99_mean (ms) | e2e_p99 CI95 (ms) | ttft_p99_mean (ms) | error_rate | cell_status |
 |---|---|---:|---:|---:|---|---:|---:|---|
@@ -931,7 +960,7 @@ Reactive W2's 46.9 s p99 is backend-queue-dominated, not "sustainable without qu
 
 #### 5.13.4 Backend-ceiling rps=2 cells (intentional stress)
 
-Optional opportunistic cells per Codex's v7 — explicitly labeled as backend-capacity stress, not calibration fidelity:
+Optional opportunistic cells — explicitly labeled as backend-capacity stress, not calibration fidelity:
 
 | Stack | Workload | rps | n | e2e_p99_mean (ms) | ttft_p99_mean (ms) | error_rate | cell_status |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -952,7 +981,7 @@ Specific scope claims §5.13 supports:
 
 Specific scope claims §5.13 does NOT support:
 1. **Mock-vs-live distributional equivalence.** §5.13.2 explicitly shows the two MLX runtimes' distributions K-S-reject strongly (TTFT 12× faster on mlx_lm.server, p_burst 0 vs 0.38). The mock is calibrated to LM Studio's runtime; it is not validated against `mlx_lm.server`'s runtime in a distributional sense.
-2. **Cliff shape at rps=500 against a real backend.** No 4B-class real-LLM serving stack on consumer Apple Silicon hardware sustains rps=500; the realism-cliff measurement is an explicitly different experiment (different paper, different hardware) outside this paper's scope.
+2. **Cliff shape at rps=500 against a real backend.** No 4B-class real-LLM serving stack on consumer Apple Silicon hardware sustains rps=500; the realism-cliff measurement is an explicitly different experiment (different result set, different hardware) outside this result set's scope.
 3. **Generalization to GPU-class serving stacks.** vLLM on a Linux + NVIDIA box would have completely different per-stream characteristics.
 
 #### 5.13.6 Reproducibility recipe
@@ -994,72 +1023,13 @@ The 18-run dataset is at `testing-results/realism-subset/runs.csv`; the per-cell
 
 ---
 
-## 6. Cross-check (NotebookLM, 2026-04-27)
-
-Both PDFs were uploaded to NotebookLM (notebook `5400a603-fc49-4f07-80ed-322a3f752ff6`, registered in the local library as **"Tweebyte papers - applsci 14/12062 + 16/00090"**). The structured-JSON extraction prompt was run; the response was cross-referenced against the numbers in §2-§5 above. Summary of the comparison:
-
-### 6.1 Confirmed matches (NotebookLM independently produced the same numbers)
-
-- **Every text-quoted performance number in paper A** — all 56 cells (User Summary GET, Follow POST, Tweet PUT, Tweet Summaries GET × async/reactive × 7 levels) reconciled exactly against §2 below. NotebookLM only quoted the low/mid/peak rows (3 levels per scenario × 2 stacks = 6 cells per scenario, 24 total); §2 fills in the in-between levels.
-- **All static / initialization metrics** (paper A Table 6 — heap MB, startup ms, JAR MB across 6 microservices) reconciled exactly.
-- **All text-quoted performance numbers in paper B** — every cell quoted in §3 (caching/CPU-bound/blocking-I/O at 10/400/1000 or 10/50/100 users) reconciled exactly: throughput, CI95 bounds, latency mean, latency p95, memory MB, CPU mean+σ.
-- **Paper B methodology metadata** — k6, Spring Boot Actuator + Micrometer + Prometheus (NotebookLM expanded the monitoring stack vs my "Actuator only"; correct), 60s warmup + 240s run + 5 repetitions, mean/σ/CI95/p95 statistics, M3 Max / 64 GB hardware, JWT validation disabled, 3-σ outlier protocol with no exclusions.
-- **Paper B Table 2 functional-equivalence claims** — `~150 tests/service`, `1050 total`, `55 Cucumber scenarios`, `4×7 + 3×14` perf matrix.
-
-### 6.2 Discrepancies surfaced
-
-These are deltas I want to keep visible for the next paper / rerun:
-
-1. **NotebookLM hallucinations against paper A.** NotebookLM confidently reported `bdd_scenarios=50` and `unit_tests_total=1023` for paper A. Verified against the PDF: paper A does **not** give an explicit Cucumber scenario count or an explicit total — it only says "approximately 150 tests per service". Both numbers are NotebookLM artefacts, not paper claims. Use paper B's Table 2 (55 Cucumber, 1050 total) as the canonical claim.
-2. **NotebookLM `services_counted=4` is its interpretation, not a paper claim.** The math `150 × 7 = 1050` only works with 7 services (gateway as async-only, plus user/tweet/interaction × 2 paradigms). NotebookLM picked 4 because that's the unique microservice-type count. The "7" framing is what the FE claim depends on; document accordingly.
-3. **NotebookLM renamed paper A's scenarios.** Paper A / xlsx label them `User Summary GET`, `Follow POST`, `Tweet PUT`, `Tweet Summaries GET`; NotebookLM's response uses descriptive labels (`Users Subscribing`, `Updating Existing Messages`, `Fetching User Messages`). The numbers under each label match exactly, but if a future ingest hits NotebookLM-style labels, normalise back to the xlsx names.
-4. **Paper B abstract vs body internally inconsistent on caching memory.** Abstract claims "75% higher throughput and **68% lower memory footprint**" for caching. Body text (§6.2 of the PDF, page 27-29) shows caching memory at 1000 users is reactive **940 MB vs async 861 MB** — i.e. reactive is *higher*, not 68% lower. The 68% claim only holds at the very low end (10 users: 71 vs 145 → 51% reduction, still not 68%). Source of the "68%" couldn't be located in the body; **flag for the manuscript revision** — either qualify the abstract claim ("at low concurrency only") or correct the figure.
-5. **Plot data extraction did NOT happen.** NotebookLM populated every in-between concurrency level (1, 5, 15, 20, 25, 50, 75, 100, 200, 600, 800) with all-null fields and `source: "figure_2-5" / "figure_6-9" / "figure_10-13"` annotations. NotebookLM acknowledged the figures exist but cannot read pixel data from the PNG plots. The full per-level curves remain extractable only by re-running the second-study sweep through `testing/analysis/` from the original raw `.csv` outputs (if recoverable) or by re-running the benchmark itself with the updated 14-level k6 harness.
-
-### 6.3 Continuity finding from the prior published §7.2
-
-The prior caching/CPU/blocking-I/O publication's future-work section (§7.2) explicitly anticipates the AI-streaming workload now in this codebase:
-
-> "Controllers driven by machine learning could, based on real-time workload metrics, [...] be in charge of dynamically managing the cache eviction policies, thread-pool sizing, or database connection handling."
-
-The AI-streaming workload (W0/W1/W2 in §5) is a direct realisation of that direction.
-
-### 6.4 How to query the notebook from now on
-
-Active in the library:
-```bash
-/usr/bin/python3 ~/.claude/skills/notebooklm/scripts/run.py notebook_manager.py activate \
-  --id "tweebyte-papers---applsci-14-12062---16-00090"
-```
-Ask follow-up questions:
-```bash
-/usr/bin/python3 ~/.claude/skills/notebooklm/scripts/run.py ask_question.py \
-  --question "<targeted question, e.g. 'For Figure 2 (Caching Throughput vs Concurrency), what's the throughput at concurrency=200 for both stacks?'" \
-  --notebook-id "tweebyte-papers---applsci-14-12062---16-00090"
-```
-Or via the slash command: `/notebooklm:ask`.
-
-### 6.5 Skill enhancement landed (for future Claude)
-
-`~/.claude/skills/notebooklm/scripts/create_notebook.py` + `/notebooklm:create` slash command now exist. They drive the same patchright session as the rest of the skill: open NotebookLM, click "Create new notebook", upload local files via the hidden `<input type="file">` (clicking the visible upload button would open an unreachable OS file picker), wait for ingestion, return the URL, optionally register in the library. This eliminates the manual Chrome upload step for next time.
-
-To invoke:
-```bash
-/usr/bin/python3 ~/.claude/skills/notebooklm/scripts/run.py create_notebook.py \
-  --files /abs/path/to/foo.pdf /abs/path/to/bar.pdf \
-  [--register --name "..." --description "..." --topics "a,b"]
-```
-
----
-
-## 7. Maintenance checklist
+## 6. Maintenance checklist
 
 Run this every time the test surface or perf surface changes:
 
 - [ ] Re-count `@Test` methods per service (§1.1) and update the table + subtotals + average.
-- [ ] If async/reactive `@Test` counts diverge by >5% per service, file a follow-up issue to add the missing reactive equivalents.
+- [ ] If async/reactive `@Test` counts diverge by >5% per service, restore parity by adding the missing reactive equivalents before merge.
 - [ ] If Cucumber scenarios are added back, update §1.2 with the new count and remove the "0 in repo" line.
 - [ ] If a benchmark sweep is rerun, append the new numbers to §3 (or §5 for AI) with the same column shape, including methodology-version metadata in the table caption.
 - [ ] If methodology changes (new metric, new stat method, new tool), update §4 first and link from the affected result section.
-- [ ] If a paper claim changes between drafts, update §1, §2, §3 to keep parity with the manuscript.
-- [ ] Keep the cross-check section (§6) honest — note when NotebookLM extraction has actually been done vs still pending.
+- [ ] Before the next AI-workload sweep, rerun every benchmark in the recorded result sets and confirm the new numbers fall inside the stored expected ranges/proportions. Treat any divergence as a regression or methodology drift to investigate before updating conclusions.

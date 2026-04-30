@@ -6,8 +6,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import ro.tweebyte.userservice.model.UserDto;
@@ -83,6 +86,21 @@ public class UserControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBodyList(UserDto.class).hasSize(1);
+    }
+
+    @Test
+    public void testUpdateUser() {
+        // multipart PUT /users/{id}
+        // returns 204 No Content. The setUp() stubs userService.updateUser to Mono.empty().
+        MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+        formData.add("userName", "newUserName");
+        formData.add("email", "newEmail@example.com");
+
+        webTestClient.put().uri("/users/{userId}", testUserId)
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .bodyValue(formData)
+                .exchange()
+                .expectStatus().isNoContent();
     }
 
 }

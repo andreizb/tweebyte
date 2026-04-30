@@ -1,5 +1,6 @@
 package ro.tweebyte.interactionservice.util;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
@@ -20,6 +21,20 @@ public class ClientUtil {
             return objectMapper.readValue(response.body(), responseType);
         }
 
+        throw new ClientException(response);
+    }
+
+    /**
+     * Typed-collection overload: parses with a fully-typed TypeReference so
+     * generic collections (e.g. List&lt;TweetDto&gt;) come back as the proper
+     * element type rather than `List&lt;LinkedHashMap&gt;`. Without this,
+     * downstream `.stream().map(TweetDto::getId)` throws ClassCastException.
+     */
+    @SneakyThrows
+    public <T> T parseResponse(HttpResponse<String> response, TypeReference<T> responseType) {
+        if (response.statusCode() == 200) {
+            return objectMapper.readValue(response.body(), responseType);
+        }
         throw new ClientException(response);
     }
 

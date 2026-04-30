@@ -1,5 +1,6 @@
 package ro.tweebyte.interactionservice.client;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -77,7 +78,7 @@ public class TweetClientTest {
         when(httpClient.send(any(HttpRequest.class), eq(HttpResponse.BodyHandlers.ofString())))
             .thenReturn(mockHttpResponse);
 
-        when(clientUtil.parseResponse(any(), any(Class.class))).thenReturn(expectedList);
+        when(clientUtil.parseResponse(any(), any(TypeReference.class))).thenReturn(expectedList);
 
         // When
         List<TweetDto> result = tweetClient.getUserTweetsSummary(userId);
@@ -95,7 +96,7 @@ public class TweetClientTest {
 
         when(httpClient.send(any(HttpRequest.class), eq(HttpResponse.BodyHandlers.ofString())))
             .thenReturn(mockHttpResponse);
-        when(clientUtil.parseResponse(any(), any(Class.class))).thenReturn(expectedList);
+        when(clientUtil.parseResponse(any(), any(TypeReference.class))).thenReturn(expectedList);
 
         // When
         List<TweetDto.HashtagDto> result = tweetClient.getPopularHashtags();
@@ -129,7 +130,7 @@ public class TweetClientTest {
         when(httpClient.send(any(HttpRequest.class), eq(HttpResponse.BodyHandlers.ofString())))
             .thenReturn(mockHttpResponse);
 
-        when(clientUtil.parseResponse(any(), any(Class.class))).thenThrow(new TweetNotFoundException("Tweet not found"));
+        when(clientUtil.parseResponse(any(), any(TypeReference.class))).thenThrow(new TweetNotFoundException("Tweet not found"));
 
         // When and Then
         Exception e = assertThrows(InteractionException.class, () -> tweetClient.getUserTweetsSummary(userId));
@@ -144,7 +145,7 @@ public class TweetClientTest {
         when(httpClient.send(any(HttpRequest.class), eq(HttpResponse.BodyHandlers.ofString())))
             .thenReturn(mockHttpResponse);
 
-        when(clientUtil.parseResponse(any(), any(Class.class))).thenThrow(new InteractionException());
+        when(clientUtil.parseResponse(any(), any(TypeReference.class))).thenThrow(new InteractionException());
 
         // When and Then
         assertThrows(InteractionException.class, () -> tweetClient.getPopularHashtags());

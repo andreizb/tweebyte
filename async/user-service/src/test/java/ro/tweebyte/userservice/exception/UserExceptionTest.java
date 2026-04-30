@@ -46,4 +46,11 @@ class UserExceptionTest {
         assertEquals(cause, exception.getCause());
     }
 
+    @Test
+    void testRequiredArgsConstructor() {
+        UserException userException = new UserException();
+
+        assertNotNull(userException);
+    }
+
 }

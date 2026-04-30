@@ -110,9 +110,8 @@ public class MockStreamingChatModel implements ChatModel {
                     // the case where multiple delta.content chunks landed in the
                     // same TCP frame on the wire and were read back-to-back at
                     // memory speed). With probability 1 - itlPBurst we sample
-                    // from the gap-mode gamma fit. Pre-zero-inflation calibration
-                    // files set itlPBurst=0 and this collapses to the original
-                    // pure-gamma behaviour.
+                    // from the gap-mode gamma fit. Calibration files with
+                    // itlPBurst=0 collapse to pure-gamma behaviour.
                     if (itlPBurst > 0.0 && ThreadLocalRandom.current().nextDouble() < itlPBurst) {
                         return Mono.just(asDeltaResponse("token_" + i + " ", i, tokensPerResponse));
                     }

@@ -78,6 +78,40 @@
                     </excludes>
                 </configuration>
             </plugin>
+
+            <!-- JaCoCo: line + branch coverage from `mvn test` (unit) and `mvn verify` (Cucumber). -->
+            <!-- Test-scope only: prepare-agent instruments the surefire JVM and report runs in the verify phase. -->
+            <!-- No production-jar impact; no benchmark-path impact (mvn test is not invoked by k6 / bench). -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <excludes>
+                        <exclude>**/*MapperImpl.class</exclude>
+                        <exclude>**/*Application.class</exclude>
+                        <!-- Coverage exclusions: DTO/entity/exception/config classes are
+                             dominated by Lombok-generated accessors/equals/hashCode and Spring
+                             bean-wiring; the gateway business logic lives in
+                             `JwtTokenValidationFilter` which is fully covered. -->
+                        <exclude>**/config/**</exclude>
+                        <exclude>**/exception/**</exclude>
+                        <exclude>**/model/**</exclude>
+                        <exclude>**/entity/**</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

@@ -1,0 +1,70 @@
+# Functional-equivalence test overlay.
+#
+# This file is layered on top of `infrastructure.yml` + `<stack>.yml` ONLY when
+# the `fe-test` profile is selected via:
+#
+#     ./run.sh runtime up <async|reactive> fe-test
+#
+# Its sole purpose is to attach the JaCoCo Java agent to each microservice's
+# JVM so that line + branch coverage produced by Cucumber scenarios in
+# `testing/equivalence/` can be aggregated into a per-service report.
+#
+# Critically: this file is NEVER loaded for `prod` or `benchmark` runs. The
+# performance-testing path (`./run.sh runtime up ... benchmark`,
+# `./run.sh bench k6 ...`) sees zero JaCoCo overhead, no extra mounts, no
+# JAVA_TOOL_OPTIONS additions — exactly as required for clean perf measurement.
+#
+# Prerequisites:
+#  - The JaCoCo agent jar must be present at the host path
+#    `testing/equivalence/target/jacoco-agent.jar`. The Maven build of
+#    `testing/equivalence` extracts this from the `org.jacoco:org.jacoco.agent`
+#    dependency during the `pre-integration-test` phase. Run
+#    `mvn -f testing/equivalence/pom.xml process-test-resources` once before bringing
+#    the stack up in fe-test mode if the file is missing.
+#  - The host directory `testing-results/equivalence/jacoco/` must exist (or
+#    will be auto-created at compose-up time).
+#
+# Output:
+#  - Each service writes a per-instance `.exec` file to
+#    `/jacoco-out/<service>.exec` (bind-mounted to the host at
+#    `testing-results/equivalence/jacoco/<service>.exec`).
+#  - The Cucumber test harness's `@AfterAll` aggregates these via the
+#    JaCoCo Maven plugin's `report` goal.
+
+services:
+  # NOTE on relative paths below: run.sh invokes docker compose with
+  # `--project-directory ${REPO_ROOT}`, so relative paths are resolved
+  # against the repo root, not against this file's location.
+  gateway-service:
+    environment:
+      JAVA_TOOL_OPTIONS: "-javaagent:/jacoco-agent/jacoco-agent.jar=destfile=/jacoco-out/gateway-service.exec,append=false,output=file,dumponexit=true"
+    volumes:
+      - ./testing/equivalence/target/jacoco-agent.jar:/jacoco-agent/jacoco-agent.jar:ro
+      - ./testing-results/equivalence/jacoco:/jacoco-out
+    # stop_grace_period gives Spring Boot graceful-shutdown + the JaCoCo agent's
+    # shutdown hook enough time to flush the .exec file before SIGKILL.
+    stop_grace_period: 60s
+
+  user-service:
+    environment:
+      JAVA_TOOL_OPTIONS: "-javaagent:/jacoco-agent/jacoco-agent.jar=destfile=/jacoco-out/user-service.exec,append=false,output=file,dumponexit=true"
+    volumes:
+      - ./testing/equivalence/target/jacoco-agent.jar:/jacoco-agent/jacoco-agent.jar:ro
+      - ./testing-results/equivalence/jacoco:/jacoco-out
+    stop_grace_period: 60s
+
+  tweet-service:
+    environment:
+      JAVA_TOOL_OPTIONS: "-javaagent:/jacoco-agent/jacoco-agent.jar=destfile=/jacoco-out/tweet-service.exec,append=false,output=file,dumponexit=true ${TWEET_JAVA_TOOL_OPTIONS:-}"
+    volumes:
+      - ./testing/equivalence/target/jacoco-agent.jar:/jacoco-agent/jacoco-agent.jar:ro
+      - ./testing-results/equivalence/jacoco:/jacoco-out
+    stop_grace_period: 60s
+
+  interaction-service:
+    environment:
+      JAVA_TOOL_OPTIONS: "-javaagent:/jacoco-agent/jacoco-agent.jar=destfile=/jacoco-out/interaction-service.exec,append=false,output=file,dumponexit=true ${INTERACTION_JAVA_TOOL_OPTIONS:-}"
+    volumes:
+      - ./testing/equivalence/target/jacoco-agent.jar:/jacoco-agent/jacoco-agent.jar:ro
+      - ./testing-results/equivalence/jacoco:/jacoco-out
+    stop_grace_period: 60s

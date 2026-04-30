@@ -63,7 +63,7 @@ Usage:
 Generic flags:
   --workload <name>
     following-cache  Redis-backed interaction-service cache benchmark (I/O-bound)
-    file-download    Legacy blocking download benchmark (blocking I/O)
+    file-download    Blocking download benchmark (blocking I/O)
     image-upload     Gateway image filter benchmark (CPU-bound)
     ai-streaming     AI streaming benchmark (open-loop, SSE + buffered + cancel, W0/W1/W2)
   --base-url <url>
@@ -382,7 +382,7 @@ configure_workload() {
       ;;
     file-download)
       WORKLOAD_SLUG="file_download"
-      WORKLOAD_DESC="Legacy blocking download benchmark (blocking I/O)"
+      WORKLOAD_DESC="Blocking download benchmark (blocking I/O)"
       SCRIPT_JS="${WORKLOAD_DIR}/file-download-blocking-io-benchmark.js"
       BASE_URL="${BASE_URL:-http://localhost:9091}"
       API_PATH="${API_PATH:-/media/}"
@@ -672,9 +672,9 @@ readiness_gate() {
   # = UP AND /actuator/prometheus = 200 stably for READINESS_GRACE_SECS seconds
   # before we start the k6 warmup. Any failure inside the window aborts the cell
   # rather than letting a "container not ready" or post-rebuild timing window
-  # silently produce an all-error run that pollutes cells.csv. Codex's 2026-04-28
-  # review found contaminated cells where /actuator was reachable but Spring saw
-  # no benchmark traffic — this gate closes that window.
+  # silently produce an all-error run that pollutes cells.csv. The gate
+  # guards against the case where /actuator is reachable but Spring has
+  # not yet started accepting benchmark traffic.
   local actuator_url="$1"
   local grace="${READINESS_GRACE_SECS:-5}"
   local health_url="${actuator_url%/prometheus}/health"
@@ -719,13 +719,11 @@ prom_poll_loop() {
     # Aggregate values across label sets (sum gauges and counters; for histograms
     # we'd take a single bucket — but those are excluded above).
     # Sum the metric value across all label-sets for each WANT name. The
-    # metric line shape is either `name 0.0` (no labels) or `name{...} 0.0`
-    # (with labels) — match either by extracting the leading non-{/space token
-    # via awk's $1 (which Prometheus exposition format guarantees is the bare
-    # name when there are no labels) and falling back to a regex for the
-    # labeled form. Earlier code used `/^name(\\{|\\s)/` which is a bash-into-
-    # awk quoting trap: awk saw literal `\{` and `\s` and matched neither the
-    # space-separated nor the labeled form, so every column was zero.
+    # metric line shape is either `name 0.0` (unlabeled) or `name{...} 0.0`
+    # (labeled). Match both: awk's $1 catches the unlabeled form (Prometheus
+    # exposition format guarantees the leading token is the bare name there),
+    # and the trailing regex catches the labeled form. awk receives literal
+    # backslashes from bash, so keep the regex simple.
     extract() {
       printf '%s\n' "$snap" | awk -v want="$1" '
         $1 == want { n += $2; next }
@@ -752,8 +750,8 @@ prom_poll_loop() {
 }
 
 scan_for_connection_errors() {
-  # Codex 2026-04-28 review B1: post-run, scan the k6 output text for transport
-  # failure signatures within the main-scenario window.
+  # Post-run, scan the k6 output text for transport failure signatures within
+  # the main-scenario window.
   #
   # Threshold-aware classification: CONTAMINATED only on >REFUSED_THRESHOLD
   # connection-refused events. `connection reset by peer` and `unexpected EOF`
@@ -820,7 +818,7 @@ main() {
       PROM_CSV="$OUT_DIR/${c}_${i}_prom.csv"
       VAL_TXT="$OUT_DIR/${c}_${i}_validation.txt"
 
-      # B1: pre-flight readiness gate before warmup. If the SUT can't respond
+      # pre-flight readiness gate before warmup. If the SUT can't respond
       # to /actuator/health = UP and /actuator/prometheus = 200 stably for the
       # grace window, skip the cell and write a sentinel.
       if ! readiness_gate "$ACTUATOR_URL" 2>&1 | tee -a "$RUN_TXT"; then
@@ -835,7 +833,7 @@ main() {
 
       build_k6_env_args "$c"
 
-      # B3: in-run Prometheus poller. Captures pool/queue/rejections time-series
+      # in-run Prometheus poller. Captures pool/queue/rejections time-series
       # alongside the k6 run — the data the §5.12 attribution figure needs.
       prom_poll_loop "$ACTUATOR_URL" "$PROM_CSV" &
       PROM_PID=$!
@@ -865,7 +863,7 @@ main() {
       kill "$PROM_PID" >/dev/null 2>&1 || true
       wait "$PROM_PID" 2>/dev/null || true
 
-      # B1: post-run scan for transport-error signatures inside the run text.
+      # post-run scan for transport-error signatures inside the run text.
       scan_for_connection_errors "$RUN_TXT" "$VAL_TXT"
 
       print_pretty_summary "$RUN_TXT" "$RES_CSV" "$c" "$i"

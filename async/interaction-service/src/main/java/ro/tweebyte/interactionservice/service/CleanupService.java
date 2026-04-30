@@ -38,12 +38,22 @@ public class CleanupService {
     private final ReplyRepository replyRepository;
     private final RetweetRepository retweetRepository;
 
+    /**
+     * Cleanup tasks fire with a 24-hour INITIAL DELAY so the orphan/cleanup
+     * sweeps don't run during a single benchmark or dev session (typically
+     * minutes, not days), keeping latency / GC numbers in testing/RESULTS.md
+     * §3 + §5 free of cleanup noise. Once the application has been up for
+     * 24h (production-like), the schedules tick at their configured periods.
+     * The reactive stack's CleanupService.startCleanupTasks uses the same
+     * 24h initial delay via Flux.interval — same observable behaviour on
+     * both stacks.
+     */
     @PostConstruct
     public void startCleanupTasks() {
-        scheduler.scheduleAtFixedRate(this::cleanupRejectedFollowRequests, 0, 3, TimeUnit.HOURS);
-        scheduler.scheduleAtFixedRate(this::cleanupOrphanLikes, 0, 2, TimeUnit.HOURS);
-        scheduler.scheduleAtFixedRate(this::cleanupOrphanReplies, 0, 1, TimeUnit.HOURS);
-        scheduler.scheduleAtFixedRate(this::cleanupOrphanRetweets, 0, 1, TimeUnit.HOURS);
+        scheduler.scheduleAtFixedRate(this::cleanupRejectedFollowRequests, 24, 3, TimeUnit.HOURS);
+        scheduler.scheduleAtFixedRate(this::cleanupOrphanLikes,            24, 2, TimeUnit.HOURS);
+        scheduler.scheduleAtFixedRate(this::cleanupOrphanReplies,          24, 1, TimeUnit.HOURS);
+        scheduler.scheduleAtFixedRate(this::cleanupOrphanRetweets,         24, 1, TimeUnit.HOURS);
     }
 
     @Transactional

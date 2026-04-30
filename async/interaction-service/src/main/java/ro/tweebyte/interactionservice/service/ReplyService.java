@@ -47,21 +47,30 @@ public class ReplyService {
         return CompletableFuture.runAsync(() -> {
             ReplyEntity reply = replyRepository.findById(request.getId())
                     .orElseThrow(() -> new IllegalArgumentException("Reply not found."));
-            if (reply.getUserId().equals(request.getUserId())) {
-                replyMapper.mapRequestToEntity(request, reply);
-                replyRepository.save(reply);
+            // Non-author updates raise IllegalArgumentException (mapped to 500
+            // by the GlobalExceptionHandler), matching the reactive stack's
+            // Mono.error path and the FE-equivalence scenario "Updating another
+            // user's reply is rejected".
+            if (!reply.getUserId().equals(request.getUserId())) {
+                throw new IllegalArgumentException("Unauthorized or reply not found");
             }
+            replyMapper.mapRequestToEntity(request, reply);
+            replyRepository.save(reply);
         });
     }
 
     public CompletableFuture<Void> deleteReply(UUID userId, UUID replyId) {
-        return CompletableFuture.supplyAsync(() -> replyRepository.findById(replyId))
-                .thenAccept(replyEntity -> replyEntity.ifPresent(entity -> {
-                    if (entity.getUserId().equals(userId)) {
-                        replyRepository.deleteById(replyId);
-                    }
-                })
-            );
+        return CompletableFuture.runAsync(() -> {
+            // Non-author and missing-id deletes raise IllegalArgumentException
+            // (mapped to 500 by the GlobalExceptionHandler). Both stacks behave
+            // the same way on the unauthorized branch.
+            ReplyEntity entity = replyRepository.findById(replyId)
+                    .orElseThrow(() -> new IllegalArgumentException("Unauthorized or reply not found"));
+            if (!entity.getUserId().equals(userId)) {
+                throw new IllegalArgumentException("Unauthorized or reply not found");
+            }
+            replyRepository.deleteById(replyId);
+        });
     }
 
     public CompletableFuture<List<ReplyDto>> getRepliesForTweet(UUID tweetId) {

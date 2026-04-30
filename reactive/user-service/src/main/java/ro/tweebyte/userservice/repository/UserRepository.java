@@ -16,10 +16,16 @@ public interface UserRepository extends ReactiveCrudRepository<UserEntity, UUID>
 
     Mono<UserEntity> findByUserName(String userName);
 
-    @Query("SELECT * FROM users WHERE user_name LIKE :query")
+    // register pre-check needs these to mirror async's existsByEmail / existsByUserName.
+    Mono<Boolean> existsByEmail(String email);
+
+    Mono<Boolean> existsByUserName(String userName);
+
+    // ILIKE (case-insensitive) — matches async's UserRepository.
+    @Query("SELECT * FROM users WHERE user_name ILIKE :query")
     Flux<UserEntity> searchUsers(String query);
 
-    @Query("SELECT * FROM users WHERE user_name LIKE :searchTerm ORDER BY user_name") // Simplified query
+    @Query("SELECT * FROM users WHERE user_name ILIKE :searchTerm ORDER BY user_name")
     Flux<UserEntity> findBySimilarity(String searchTerm);
 
 }

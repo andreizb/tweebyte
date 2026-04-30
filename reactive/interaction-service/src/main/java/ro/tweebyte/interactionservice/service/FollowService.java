@@ -58,7 +58,10 @@ public class FollowService {
         String key = FOLLOWING_CACHE + "::" + userId;
 
         return redisTemplate.opsForValue().get(key)
-            .filter(bytes -> bytes != null && bytes.length > 0)
+            // Reactor Mono/Flux contracts forbid emitting null elements, so a
+            // `bytes != null` guard would be dead code (and unreachable for JaCoCo);
+            // the predicate filters by length only.
+            .filter(bytes -> bytes.length > 0)
             .switchIfEmpty(Mono.defer(() ->
                 followRepository.findByFollowerIdAndStatus(userId, Status.ACCEPTED.name())
                     .map(e -> followMapper.mapEntityToDto(e, "some username"))

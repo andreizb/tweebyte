@@ -9,8 +9,7 @@ package ro.tweebyte.analysis;
  * but were produced under different mock parameters (e.g. mock defaults vs.
  * the calibrated Qwen3.5-4B-MLX zero-inflated mock). It is part of {@link #cellKey()}
  * so the report/plot pipelines do not silently pool calibrated and uncalibrated
- * results into the same row — that pooling was the P1 finding from Codex's
- * 2026-04-27 review.
+ * results into the same row.
  */
 public record RunResult(
         String stack,
@@ -41,12 +40,8 @@ public record RunResult(
         String sourceFile
 ) {
     /**
-     * Cell key with both calibration_tag and campaign so different campaigns
-     * (e.g. pre-cleanup-pilot vs headline-5rep vs diagonal) stay separate even
-     * when their calibration parameters match. {@code campaign} added 2026-04-28
-     * after Codex's review found that same-tag pilot + cleanup + diagonal +
-     * failed-batch runs were pooling into the same cells, distorting headline
-     * means.
+     * Cell key includes calibration_tag and campaign so operationally
+     * distinct batches stay separate even when their load dimensions match.
      */
     public String cellKey() {
         return String.join("|", stack, workload, transport,

@@ -12,15 +12,24 @@ JMETER_PREPARE="${REPO_ROOT}/testing/performance/jmeter/prepare_payload.py"
 usage() {
   cat <<'EOF'
 Usage:
-  ./run.sh runtime up <infra|async|reactive> <prod|benchmark> [extra docker compose args...]
-  ./run.sh runtime down <infra|async|reactive> <prod|benchmark> [extra docker compose args...]
-  ./run.sh runtime destroy <infra|async|reactive> <prod|benchmark> [extra docker compose args...]
+  ./run.sh runtime up <infra|async|reactive> <prod|benchmark|fe-test> [extra docker compose args...]
+  ./run.sh runtime down <infra|async|reactive> <prod|benchmark|fe-test> [extra docker compose args...]
+  ./run.sh runtime destroy <infra|async|reactive> <prod|benchmark|fe-test> [extra docker compose args...]
   ./run.sh runtime ps <infra|async|reactive> [extra docker compose args...]
   ./run.sh runtime logs <infra|async|reactive> [extra docker compose args...]
 
   ./run.sh bench <k6|jmeter> [runner args...]
   ./run.sh prepare <k6|jmeter> [payload args...]
   ./run.sh local <async|reactive> <gateway-service|user-service|tweet-service|interaction-service> <prod|benchmark> [extra mvn args...]
+
+Profiles:
+  prod      — normal runtime (no instrumentation).
+  benchmark — performance-test profile (toxiproxy, GC log, JVM heap caps;
+              k6 hits services directly bypassing the gateway).
+  fe-test   — functional-equivalence profile (JaCoCo agent layered into each
+              service JVM for the Cucumber suite under testing/equivalence/).
+              Cleanly isolated from prod/benchmark — overlay only loaded when
+              this profile is selected.
 
 Compatibility aliases:
   ./run.sh up|down|destroy|ps|logs ... still work unchanged

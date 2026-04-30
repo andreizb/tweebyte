@@ -57,6 +57,18 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(getErrorsMap(List.of(ex.getMessage()), request, HttpStatus.UNAUTHORIZED), new HttpHeaders(), HttpStatus.UNAUTHORIZED);
     }
 
+    // malformed UUID in a @PathVariable triggers Spring's
+    // MethodArgumentTypeMismatchException; before this handler it bubbled up to
+    // the Throwable catch-all and surfaced as a 500. Reactive's WebFlux default
+    // returns 400 for the same condition; aligning async to also return 400.
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, Object>> handlePathTypeMismatch(
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ex,
+            HttpServletRequest request) {
+        return new ResponseEntity<>(getErrorsMap(List.of(ex.getMessage()), request, HttpStatus.BAD_REQUEST),
+                new HttpHeaders(), HttpStatus.BAD_REQUEST);
+    }
+
     @ExceptionHandler(Throwable.class)
     public ResponseEntity<Map<String, Object>> handleException(Throwable ex, HttpServletRequest request) {
         return new ResponseEntity<>(getErrorsMap(List.of(ex.getMessage()), request, HttpStatus.INTERNAL_SERVER_ERROR), new HttpHeaders(), HttpStatus.INTERNAL_SERVER_ERROR);

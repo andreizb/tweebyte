@@ -59,7 +59,10 @@ public class UserService {
     }
 
     public Flux<UserDto> searchUser(String searchTerm) {
-        return userRepository.searchUsers(searchTerm)
+        // wrap with % on both sides so the repository's ILIKE matches substrings,
+        // mirroring async's UserService. Without this a search for "alic" doesn't match
+        // user "alice" — the repo would do `ILIKE 'alic'` instead of `ILIKE '%alic%'`.
+        return userRepository.searchUsers("%" + searchTerm + "%")
             .map(userMapper::mapToSummaryDto);
     }
 

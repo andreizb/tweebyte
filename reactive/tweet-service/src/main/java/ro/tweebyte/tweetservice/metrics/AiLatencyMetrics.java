@@ -7,8 +7,8 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 
 /**
- * Reactive twin of the async latency metrics — kept in shape-parity so the
- * paper can scrape `tweebyte_ai_*_seconds{outcome="..."}` symmetrically across
+ * Reactive twin of the async latency metrics — kept in shape-parity so any
+ * scraper can read `tweebyte_ai_*_seconds{outcome="..."}` symmetrically across
  * stacks. See the async stack's `AiLatencyMetrics` for outcome semantics.
  */
 @Component

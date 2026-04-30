@@ -97,4 +97,20 @@ class FollowMapperTest {
 		FollowDto followDto = mapper.mapEntityToDto(null, null);
 		assertNull(followDto);
 	}
+
+	@Test
+	void mapCreationRequestToEntity_ShouldMapCorrectly() {
+		// Exercises the
+		// protected mapCreationRequestToEntity directly (same package as mapper).
+		UUID followerId = UUID.randomUUID();
+		UUID followedId = UUID.randomUUID();
+		String status = "REJECTED";
+
+		FollowEntity followEntity = mapper.mapCreationRequestToEntity(followerId, followedId, status);
+
+		assertNotNull(followEntity);
+		assertEquals(followerId, followEntity.getFollowerId());
+		assertEquals(followedId, followEntity.getFollowedId());
+		assertEquals(status, followEntity.getStatus());
+	}
 }

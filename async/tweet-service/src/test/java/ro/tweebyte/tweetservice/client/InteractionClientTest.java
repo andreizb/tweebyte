@@ -199,4 +199,57 @@ class InteractionClientTest {
         assertThrows(TweetException.class, () -> interactionClient.getRepliesForTweet(tweetId, "AUTH_TOKEN").get());
     }
 
+    @Test
+    void getFollowedIdsCachesBodyWhen200() throws Exception {
+        // Covers the true-branch of `if (response.statusCode() == 200)` —
+        // the followed-ids list is mirrored into the followed_cache key for
+        // the TweetService cache-fallback path.
+        UUID userId = UUID.randomUUID();
+        @SuppressWarnings("unchecked")
+        org.springframework.data.redis.core.RedisTemplate<String, Object> redis =
+                mock(org.springframework.data.redis.core.RedisTemplate.class);
+        @SuppressWarnings("unchecked")
+        org.springframework.data.redis.core.ValueOperations<String, Object> valueOps =
+                mock(org.springframework.data.redis.core.ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(valueOps);
+        ReflectionTestUtils.setField(interactionClient, "redisTemplate", redis);
+
+        @SuppressWarnings("unchecked")
+        HttpResponse<String> mockResp = mock(HttpResponse.class);
+        when(mockResp.statusCode()).thenReturn(200);
+        when(mockResp.body()).thenReturn("[]");
+        when(httpClient.sendAsync(any(), eq(HttpResponse.BodyHandlers.ofString())))
+                .thenReturn(CompletableFuture.completedFuture(mockResp));
+        when(clientUtil.parseResponse(any(), any(TypeReference.class)))
+                .thenReturn(new ArrayList<>());
+
+        List<UUID> result = interactionClient.getFollowedIds(userId).get();
+        assertNotNull(result);
+        verify(valueOps).set(eq("followed_cache::" + userId), eq("[]"));
+    }
+
+    @Test
+    void getFollowedIdsSkipsRedisCacheWhenNon200() throws Exception {
+        // Covers the false-branch of `if (response.statusCode() == 200)` —
+        // a non-200 response must NOT touch redisTemplate (cache stays cold).
+        UUID userId = UUID.randomUUID();
+        @SuppressWarnings("unchecked")
+        org.springframework.data.redis.core.RedisTemplate<String, Object> redis =
+                mock(org.springframework.data.redis.core.RedisTemplate.class);
+        ReflectionTestUtils.setField(interactionClient, "redisTemplate", redis);
+
+        @SuppressWarnings("unchecked")
+        HttpResponse<String> mockResp = mock(HttpResponse.class);
+        when(mockResp.statusCode()).thenReturn(503);
+        when(httpClient.sendAsync(any(), eq(HttpResponse.BodyHandlers.ofString())))
+                .thenReturn(CompletableFuture.completedFuture(mockResp));
+        when(clientUtil.parseResponse(any(), any(TypeReference.class)))
+                .thenReturn(new ArrayList<>());
+
+        List<UUID> result = interactionClient.getFollowedIds(userId).get();
+        assertNotNull(result);
+        // No interactions with the redis template since cache write is gated on 200.
+        verifyNoInteractions(redis);
+    }
+
 }

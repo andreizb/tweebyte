@@ -43,14 +43,15 @@ public class LikeService {
     }
 
     public Mono<LikeDto> likeTweet(UUID userId, UUID tweetId) {
+        // The "tweet not found" case is handled upstream:
+        // tweetService.getTweetSummary surfaces TweetClient's
+        // TweetNotFoundException via the WebClient onStatus(NOT_FOUND, ...) chain → 404.
+        // Reactor's flatMap contract forbids invoking the lambda with null, so no
+        // null-guard is needed (or coverable) inside flatMap.
         return tweetService.getTweetSummary(tweetId)
-            .flatMap(tweet -> {
-                if (tweet == null) {
-                    return Mono.error(new IllegalArgumentException("Tweet does not exist."));
-                }
-                return likeRepository.save(likeMapper.mapRequestToEntity(userId, tweetId, LikeableType.TWEET.name()))
-                    .map(likeMapper::mapEntityToDto);
-            });
+            .flatMap(tweet ->
+                likeRepository.save(likeMapper.mapRequestToEntity(userId, tweetId, LikeableType.TWEET.name()))
+                    .map(likeMapper::mapEntityToDto));
     }
 
     public Mono<Void> unlikeTweet(UUID userId, UUID tweetId) {

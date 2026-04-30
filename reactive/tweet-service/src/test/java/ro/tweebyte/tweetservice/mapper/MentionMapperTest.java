@@ -31,6 +31,22 @@ class MentionMapperTest {
     }
 
     @Test
+    void mapEntityToDto_NullEntityReturnsNull() {
+        assertNull(mentionMapper.mapEntityToDto(null));
+    }
+
+    @Test
+    void mapEntityToDto_NonNullEntityMapsAllFields() {
+        UUID id = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        MentionEntity entity = MentionEntity.builder().id(id).userId(userId).text("@u").build();
+        var dto = mentionMapper.mapEntityToDto(entity);
+        assertEquals(id, dto.getId());
+        assertEquals(userId, dto.getUserId());
+        assertEquals("@u", dto.getText());
+    }
+
+    @Test
     void testMapFieldsToEntityWithoutTweetEntity() {
         // Given
         UUID userId = UUID.randomUUID();

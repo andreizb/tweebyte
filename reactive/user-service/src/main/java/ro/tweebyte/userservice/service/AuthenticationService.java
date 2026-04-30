@@ -39,23 +39,43 @@ public class AuthenticationService {
     private final UserMapper userMapper;
 
     public Mono<AuthenticationResponse> login(UserLoginRequest request) {
+        // an unknown email yields Mono.empty() from findByEmail, which without
+        // switchIfEmpty produced a 200 with empty body (the controller's Mono completed
+        // empty). Now we explicitly fail with AuthenticationException, which the
+        // GlobalExceptionHandler maps to 401 — same shape as the password-mismatch path.
         return userRepository.findByEmail(request.getEmail())
+            .switchIfEmpty(Mono.error(new AuthenticationException("Invalid username or password")))
             .flatMap(userEntity -> {
-                if (userEntity != null) {
-                    if (!passwordEncoder.matches(request.getPassword(), userEntity.getPassword())) {
-                        return Mono.error(new AuthenticationException("Invalid username or password"));
-                    }
-                    return Mono.just(handleTokenAuthentication(userEntity));
-                } else {
+                if (!passwordEncoder.matches(request.getPassword(), userEntity.getPassword())) {
                     return Mono.error(new AuthenticationException("Invalid username or password"));
                 }
+                return Mono.just(handleTokenAuthentication(userEntity));
             });
     }
 
     @RateLimiter(name = "userServiceRateLimiter")
     public Mono<AuthenticationResponse> register(UserRegisterRequest request) {
-        return userRepository.save(userMapper.mapRequestToEntity(request))
-            .map(this::handleTokenAuthentication);
+        // pre-check unique constraints and surface a structured 400 via
+        // UserAlreadyExistsException → GlobalExceptionHandler. Without this, the DB
+        // layer's DataIntegrityViolation leaks to the client as a raw 500 with the
+        // postgres `duplicate key value violates unique constraint "uk..."` message.
+        // Matches async's behaviour.
+        return userRepository.existsByEmail(request.getEmail())
+            .flatMap(emailTaken -> {
+                if (Boolean.TRUE.equals(emailTaken)) {
+                    return Mono.error(new ro.tweebyte.userservice.exception.UserAlreadyExistsException(
+                            "A user with this email already exists"));
+                }
+                return userRepository.existsByUserName(request.getUserName());
+            })
+            .flatMap(usernameTaken -> {
+                if (Boolean.TRUE.equals(usernameTaken)) {
+                    return Mono.error(new ro.tweebyte.userservice.exception.UserAlreadyExistsException(
+                            "A user with this username already exists"));
+                }
+                return userRepository.save(userMapper.mapRequestToEntity(request));
+            })
+            .map(saved -> handleTokenAuthentication((UserEntity) saved));
     }
 
     private AuthenticationResponse handleTokenAuthentication(UserEntity userEntity) {

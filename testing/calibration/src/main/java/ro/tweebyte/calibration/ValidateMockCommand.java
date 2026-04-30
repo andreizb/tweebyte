@@ -71,7 +71,7 @@ public class ValidateMockCommand implements Callable<Integer> {
         // Zero-inflation probability for the ITL mock; mirrors the
         // MockStreamingChatModel runtime behaviour. With prob p_burst we
         // emit a zero-delay token (intra-burst arrival) and otherwise
-        // sample from the gap-mode fit. Pre-zero-inflation calibration files
+        // sample from the gap-mode fit. Calibration files without `p_burst`
         // (no p_burst field) pass through with p_burst=0.
         double pBurst = clampPBurst(calibration.path("itl_fits").path("p_burst").asDouble(0.0));
 
