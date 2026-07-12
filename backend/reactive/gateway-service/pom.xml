@@ -264,7 +264,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-pmd-plugin</artifactId>
-                <version>3.26.0</version>
+                <version>3.28.0</version>
                 <!-- PMD 7 needed: the plugin's default PMD 6.x cannot parse Java 21. -->
                 <dependencies>
                     <dependency>
