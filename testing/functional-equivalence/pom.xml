@@ -40,7 +40,7 @@
         <pmd.version>7.5.0</pmd.version>
         <asm.version>9.9.1</asm.version>
         <postgresql.version>42.7.3</postgresql.version>
-        <slf4j.version>2.0.13</slf4j.version>
+        <slf4j.version>2.0.18</slf4j.version>
         <!-- Aligned to the version Spring Boot 3.3.x manages for the service modules,
              whose tests this suite's assertions mirror. -->
         <assertj.version>3.25.3</assertj.version>
