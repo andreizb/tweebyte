@@ -16,7 +16,7 @@
     <properties>
         <java.version>21</java.version>
         <!-- Spring Cloud release train aligned to Boot 3.3.x (W1 Vault config import). -->
-        <spring-cloud.version>2023.0.3</spring-cloud.version>
+        <spring-cloud.version>2025.1.2</spring-cloud.version>
         <!-- e2 S3518 — gaussian() normalizes a kernel whose divisor is a sum of strictly
                         positive exponentials (center tap is exp(0)=1.0) and the only caller
                         guards radius < 1, so the divisor is provably >= 1.0 (genuine FP). -->
