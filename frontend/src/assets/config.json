@@ -1,0 +1,13 @@
+{
+  "activeGatewayId": "gateway",
+  "useMock": true,
+  "healthPollMs": 10000,
+  "showLatency": true,
+  "gateways": [
+    {
+      "id": "gateway",
+      "label": "Gateway",
+      "baseUrl": "http://localhost:8080"
+    }
+  ]
+}

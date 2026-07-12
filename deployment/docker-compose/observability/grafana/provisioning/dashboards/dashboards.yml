@@ -1,0 +1,16 @@
+# Grafana dashboard provisioning for the benchmark observability stack.
+# Loads all JSON dashboards from the sibling directory on startup so no
+# manual import is needed. The updateIntervalSeconds means Grafana will
+# detect and reload changed JSON files while running.
+apiVersion: 1
+
+providers:
+  - name: tweebyte
+    orgId: 1
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

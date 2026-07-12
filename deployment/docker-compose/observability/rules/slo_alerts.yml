@@ -1,0 +1,118 @@
+# SLO burn-rate alert rules (multi-window, multi-burn-rate).
+# Targets a 99.9 % availability SLO (error budget = 0.1 %).
+# Burn rates are derived from the Google SRE Workbook chapter 5.
+#
+# Fast burn  (1 h / 5 m windows)  — catches sharp spikes quickly.
+# Slow burn  (6 h / 30 m windows) — catches sustained degradation.
+groups:
+  - name: slo-availability
+    interval: 30s
+    rules:
+      # ---- precomputed error ratios (recording rules) ----------------------
+      - record: job:http_error_ratio:rate1h
+        expr: |
+          sum by (job) (rate(http_server_requests_seconds_count{status=~"5.."}[1h]))
+          /
+          sum by (job) (rate(http_server_requests_seconds_count[1h]) > 0)
+
+      - record: job:http_error_ratio:rate5m
+        expr: |
+          sum by (job) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+          /
+          sum by (job) (rate(http_server_requests_seconds_count[5m]) > 0)
+
+      - record: job:http_error_ratio:rate6h
+        expr: |
+          sum by (job) (rate(http_server_requests_seconds_count{status=~"5.."}[6h]))
+          /
+          sum by (job) (rate(http_server_requests_seconds_count[6h]) > 0)
+
+      - record: job:http_error_ratio:rate30m
+        expr: |
+          sum by (job) (rate(http_server_requests_seconds_count{status=~"5.."}[30m]))
+          /
+          sum by (job) (rate(http_server_requests_seconds_count[30m]) > 0)
+
+      # ---- fast burn (14.4× budget) ----------------------------------------
+      # Fires when both the 1 h and 5 m error ratios exceed 14.4× the budget
+      # (0.1 % × 14.4 = 1.44 %). Indicates exhausting the monthly error budget
+      # in under 1 hour.
+      - alert: SLOBurnRateFast
+        expr: |
+          job:http_error_ratio:rate1h > (14.4 * 0.001)
+          and
+          job:http_error_ratio:rate5m > (14.4 * 0.001)
+        for: 2m
+        labels:
+          severity: critical
+          slo: availability
+          window: fast
+        annotations:
+          summary: "Fast SLO burn on {{ $labels.job }}"
+          description: |
+            Error ratio (1 h) = {{ $value | humanizePercentage }}.
+            At this rate the monthly error budget will be exhausted in < 1 h.
+
+      # ---- slow burn (6× budget) -------------------------------------------
+      # Fires when both the 6 h and 30 m error ratios exceed 6× the budget
+      # (0.1 % × 6 = 0.6 %). Indicates exhausting the monthly budget in < 5 days.
+      - alert: SLOBurnRateSlow
+        expr: |
+          job:http_error_ratio:rate6h > (6 * 0.001)
+          and
+          job:http_error_ratio:rate30m > (6 * 0.001)
+        for: 15m
+        labels:
+          severity: warning
+          slo: availability
+          window: slow
+        annotations:
+          summary: "Slow SLO burn on {{ $labels.job }}"
+          description: |
+            Error ratio (6 h) = {{ $value | humanizePercentage }}.
+            At this rate the monthly error budget will be exhausted in < 5 days.
+
+  - name: slo-jvm
+    interval: 30s
+    rules:
+      # Alert when JVM heap usage exceeds 85 % of max — imminent GC pressure.
+      - alert: JvmHeapPressure
+        expr: |
+          (
+            jvm_memory_used_bytes{area="heap"}
+            /
+            jvm_memory_max_bytes{area="heap"}
+          ) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM heap > 85 % on {{ $labels.job }}"
+          description: "Heap ratio {{ $value | humanizePercentage }} on {{ $labels.job }} / {{ $labels.id }}"
+
+      # Alert when the GC pause time ratio (gc time / elapsed) exceeds 10 %.
+      - alert: HighGcPauseRatio
+        expr: |
+          rate(jvm_gc_pause_seconds_sum[5m])
+          /
+          rate(process_cpu_seconds_total[5m]) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High GC pause ratio on {{ $labels.job }}"
+          description: "GC is consuming {{ $value | humanizePercentage }} of CPU time on {{ $labels.job }}"
+
+  - name: slo-process
+    interval: 30s
+    rules:
+      # Alert when a service process has been up for fewer than 60 s — restart detected.
+      - alert: ServiceRestart
+        expr: |
+          process_uptime_seconds < 60
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service restart detected: {{ $labels.job }}"
+          description: "Process uptime is {{ $value | humanizeDuration }} — a restart may have occurred."

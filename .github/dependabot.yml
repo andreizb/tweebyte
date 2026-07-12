@@ -1,0 +1,81 @@
+# Dependabot — workstream W13 (GitHub-only; no local substitute needed, Trivy +
+# OWASP Dependency-Check are the local CVE detection).
+#
+# One maven entry per module dir (there is no aggregator pom, so each module's
+# pom.xml is updated independently) plus the github-actions ecosystem for the
+# workflow under .github/workflows/. Weekly cadence keeps PR noise bounded.
+version: 2
+updates:
+  # --- Maven: async stack ---
+  - package-ecosystem: maven
+    directory: /backend/async/gateway-service
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "maven", "async"]
+
+  - package-ecosystem: maven
+    directory: /backend/async/user-service
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "maven", "async"]
+
+  - package-ecosystem: maven
+    directory: /backend/async/tweet-service
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "maven", "async"]
+
+  - package-ecosystem: maven
+    directory: /backend/async/interaction-service
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "maven", "async"]
+
+  # --- Maven: reactive stack ---
+  - package-ecosystem: maven
+    directory: /backend/reactive/gateway-service
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "maven", "reactive"]
+
+  - package-ecosystem: maven
+    directory: /backend/reactive/user-service
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "maven", "reactive"]
+
+  - package-ecosystem: maven
+    directory: /backend/reactive/tweet-service
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "maven", "reactive"]
+
+  - package-ecosystem: maven
+    directory: /backend/reactive/interaction-service
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "maven", "reactive"]
+
+  # --- Maven: functional-equivalence Cucumber harness ---
+  - package-ecosystem: maven
+    directory: /testing/functional-equivalence
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "maven", "testing"]
+
+  # --- GitHub Actions used by the CI workflow ---
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "github-actions"]

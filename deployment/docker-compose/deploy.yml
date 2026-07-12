@@ -1,0 +1,40 @@
+# Pull-only deploy overlay (W14).
+# Re-declares all application services with ONLY `image:` — no `build:` context.
+# Lets CI/CD pipelines pull prebuilt images from a registry rather than building
+# inline. Combine with async.yml or reactive.yml:
+#
+#   docker compose \
+#     -f deployment/docker-compose/infrastructure.yml \
+#     -f deployment/docker-compose/async.yml \
+#     -f deployment/docker-compose/deploy.yml \
+#     up -d
+#
+# IMAGE_PREFIX defaults to "tweebyte", TAG defaults to "local", REGISTRY is
+# optional (see .env.example).  When REGISTRY is set the images are pulled from
+# that registry instead of the local Docker daemon:
+#
+#   REGISTRY=docker.io/myorg IMAGE_PREFIX=tweebyte TAG=1.2.3 STACK=reactive docker compose ...
+#
+# STACK selects the image suffix and MUST match the stack overlay you merge
+# (async.yml -> STACK=async, reactive.yml -> STACK=reactive). It has NO default:
+# a missing/empty STACK fails the command loudly rather than silently pulling the
+# wrong stack's images (a reactive overlay merged with an async-defaulted suffix
+# would otherwise run/pull the async images). The service names here MUST match
+# those in async.yml / reactive.yml so that compose merges correctly.
+services:
+  gateway-service:
+    image: ${REGISTRY:+${REGISTRY}/}${IMAGE_PREFIX:-tweebyte}-gateway-service-${STACK:?set STACK=async|reactive to match the stack overlay}:${TAG:-local}
+
+  user-service:
+    image: ${REGISTRY:+${REGISTRY}/}${IMAGE_PREFIX:-tweebyte}-user-service-${STACK:?set STACK=async|reactive to match the stack overlay}:${TAG:-local}
+
+  tweet-service:
+    image: ${REGISTRY:+${REGISTRY}/}${IMAGE_PREFIX:-tweebyte}-tweet-service-${STACK:?set STACK=async|reactive to match the stack overlay}:${TAG:-local}
+
+  interaction-service:
+    image: ${REGISTRY:+${REGISTRY}/}${IMAGE_PREFIX:-tweebyte}-interaction-service-${STACK:?set STACK=async|reactive to match the stack overlay}:${TAG:-local}
+
+  # Stack-AGNOSTIC SPA — no ${STACK} suffix (the same UI image runs against either gateway).
+  # Pull-only override of frontend.yml; chain both: -f frontend.yml -f deploy.yml.
+  frontend:
+    image: ${REGISTRY:+${REGISTRY}/}${IMAGE_PREFIX:-tweebyte}-frontend:${TAG:-local}

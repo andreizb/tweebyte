@@ -1,0 +1,162 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Tweebyte design tokens — shadcn/Spartan-ui HSL system.
+ * Dark is the DEFAULT (X-grade). `.light` opts into the light theme.
+ * All component colors resolve through these vars so theming is one switch.
+ */
+@layer base {
+  :root,
+  .dark {
+    --background: 0 0% 0%; /* true black — X aesthetic */
+    --foreground: 210 20% 98%;
+
+    --card: 0 0% 0%;
+    --card-foreground: 210 20% 98%;
+
+    --popover: 220 13% 6%;
+    --popover-foreground: 210 20% 98%;
+
+    --primary: 210 20% 98%;
+    --primary-foreground: 220 13% 6%;
+
+    --secondary: 215 14% 14%;
+    --secondary-foreground: 210 20% 98%;
+
+    --muted: 215 14% 12%;
+    --muted-foreground: 217 11% 60%;
+
+    --accent: 215 14% 16%;
+    --accent-foreground: 210 20% 98%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 20% 98%;
+
+    --border: 215 14% 16%;
+    --input: 215 14% 18%;
+    --ring: 203 89% 53%;
+
+    /* Brand: the Tweebyte/X blue. Lightness tuned to 40% so white text on a brand
+       button clears WCAG AA (4.55:1) even at small sizes. */
+    --brand: 203 89% 40%;
+    --brand-foreground: 0 0% 100%;
+
+    --like: 332 79% 58%;
+    --retweet: 142 71% 45%;
+    --reply: 203 89% 53%;
+
+    /* Neutral warning accent (toasts, near-limit counters). */
+    --warn: 25 95% 53%; /* amber */
+
+    --radius: 1rem;
+  }
+
+  .light {
+    --background: 0 0% 100%;
+    --foreground: 222 18% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 18% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 18% 11%;
+
+    --primary: 222 18% 11%;
+    --primary-foreground: 210 20% 98%;
+
+    --secondary: 210 16% 96%;
+    --secondary-foreground: 222 18% 11%;
+
+    --muted: 210 16% 95%;
+    --muted-foreground: 215 14% 40%;
+
+    --accent: 210 16% 93%;
+    --accent-foreground: 222 18% 11%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 20% 98%;
+
+    --border: 214 18% 88%;
+    --input: 214 18% 86%;
+    --ring: 203 89% 45%;
+
+    --brand: 203 89% 40%;
+    --brand-foreground: 0 0% 100%;
+
+    --like: 332 79% 52%;
+    --retweet: 142 71% 38%;
+    --reply: 203 89% 48%;
+
+    --warn: 25 95% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* X-grade thin scrollbars. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::selection {
+    background: hsl(var(--brand) / 0.3);
+  }
+}
+
+@layer components {
+  /* Skeleton shimmer used across loading states. */
+  .skeleton {
+    @apply relative overflow-hidden rounded-md bg-muted;
+  }
+  .skeleton::after {
+    @apply absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/5 to-transparent;
+    content: '';
+    animation: shimmer 1.6s infinite;
+  }
+
+  /* Focus ring matching shadcn. */
+  .focus-ring {
+    @apply outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

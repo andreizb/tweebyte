@@ -1,0 +1,15 @@
+# Alertmanager configuration for the benchmark observability stack.
+# Dev-grade: a single null receiver routes all alerts so Prometheus can
+# fire rules without requiring any real paging integration. Wire a real
+# receiver (Slack/PagerDuty/email) for production use.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: null-sink
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: null-sink

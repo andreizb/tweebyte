@@ -1,0 +1,84 @@
+# Prometheus scrape config for the observability stack.
+# Prometheus is gated to the `full` compose profile, so it only starts for the
+# `prod` and `functional-equivalence` profiles — never for `benchmark`. In those
+# profiles the application services serve HTTPS (server.ssl.enabled=true in base
+# application.properties), so every app/gateway scrape job speaks TLS:
+# scheme: https + tls_config.insecure_skip_verify (the services present the dev
+# self-signed cert from deployment/docker-compose/tls, the same skip-verify
+# posture the rest of the dev compose setup uses). The actuator endpoints are
+# reached via host.docker.internal so a single scrape config works whether the
+# services run in compose or as host JVMs.
+#
+# mTLS caveat: the gateway is server-auth only (server.ssl.client-auth=none), so its
+# scrape works with scheme: https + skip-verify alone. The three backend services run
+# east-west mTLS (server.ssl.client-auth=need), so they additionally require the scraper
+# to present a client cert chaining to the dev CA. The shipped dev bundle ships only
+# per-service PKCS12 keystores (no standalone Prometheus client cert PEM, and the tls dir
+# is not mounted into this container), so OUT OF THE BOX only the gateway job succeeds;
+# the three backend jobs handshake-fail until a Prometheus client cert is provisioned
+# (issue a leaf via tls/gen-certs.sh, mount it, and add cert_file/key_file to their
+# tls_config). This is an out-of-band prod/FE-only metrics path, not on the measured
+# benchmark path (benchmark never starts Prometheus). Tracked as an operator follow-up.
+#
+# The service actuator plane is locked behind HTTP Basic in prod /
+# functional-equivalence (W4), so the metrics scrape jobs carry the dev-default
+# actuator credential. Dev default; migrated to Vault in W1.
+global:
+  scrape_interval: 15s
+
+# Wire Prometheus to Alertmanager so fired alerts are forwarded for routing.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+# Load RED + SLO rule files from the mounted rules directory.
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: user-service
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+    metrics_path: /actuator/prometheus
+    basic_auth:
+      username: actuator
+      password: changeme-actuator
+    static_configs:
+      - targets: ["host.docker.internal:9091"]
+
+  - job_name: tweet-service
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+    metrics_path: /actuator/prometheus
+    basic_auth:
+      username: actuator
+      password: changeme-actuator
+    static_configs:
+      - targets: ["host.docker.internal:9092"]
+
+  - job_name: interaction-service
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+    metrics_path: /actuator/prometheus
+    basic_auth:
+      username: actuator
+      password: changeme-actuator
+    static_configs:
+      - targets: ["host.docker.internal:9093"]
+
+  - job_name: gateway-service
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+
+  # Prometheus scraping its own /metrics for self-observability.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

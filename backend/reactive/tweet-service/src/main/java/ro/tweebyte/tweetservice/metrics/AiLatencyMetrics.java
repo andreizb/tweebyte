@@ -1,0 +1,110 @@
+/*
+ * Copyright 2026 Tweebyte contributors
+ * SPDX-License-Identifier: MIT
+ */
+
+package ro.tweebyte.tweetservice.metrics;
+
+import java.time.Duration;
+
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import org.springframework.stereotype.Component;
+
+/**
+ * Reactive twin of the async latency metrics — kept in shape-parity so any scraper can
+ * read `tweebyte_ai_*_seconds{outcome="..."}` symmetrically across stacks. See the async
+ * stack's `AiLatencyMetrics` for outcome semantics.
+ *
+ * @author Andrei Zbarcea
+ */
+@Component
+public class AiLatencyMetrics {
+
+	/** Metric tag value for a stream that completed successfully. */
+	public static final String OUTCOME_SUCCESS = "success";
+
+	/** Metric tag value for a stream that terminated with an error. */
+	public static final String OUTCOME_ERROR = "error";
+
+	/** Metric tag value for a stream that was cancelled before completion. */
+	public static final String OUTCOME_CANCEL = "cancel";
+
+	private final MeterRegistry registry;
+
+	private final Timer ttftTimer;
+
+	private final Timer itlTimer;
+
+	private final Timer toolCallTimer;
+
+	private final Timer serializeTimer;
+
+	private final Timer endToEndSuccess;
+
+	private final Timer endToEndError;
+
+	private final Timer endToEndCancel;
+
+	public AiLatencyMetrics(MeterRegistry registry) {
+		this.registry = registry;
+		this.ttftTimer = Timer.builder("tweebyte.ai.ttft")
+			.description("Time to first token on AI streaming responses")
+			.publishPercentiles(0.5, 0.95, 0.99, 0.999)
+			.publishPercentileHistogram()
+			.register(registry);
+		this.itlTimer = Timer.builder("tweebyte.ai.itl")
+			.description("Inter-token latency on AI streaming responses")
+			.publishPercentiles(0.5, 0.95, 0.99, 0.999)
+			.publishPercentileHistogram()
+			.register(registry);
+		this.toolCallTimer = Timer.builder("tweebyte.ai.tool")
+			.description("Tool sub-call duration during AI generation")
+			.publishPercentiles(0.5, 0.95, 0.99, 0.999)
+			.publishPercentileHistogram()
+			.register(registry);
+		this.serializeTimer = Timer.builder("tweebyte.ai.serialize")
+			.description("Per-event SSE serialization + flush duration")
+			.publishPercentiles(0.5, 0.95, 0.99, 0.999)
+			.publishPercentileHistogram()
+			.register(registry);
+		this.endToEndSuccess = e2eTimer(OUTCOME_SUCCESS);
+		this.endToEndError = e2eTimer(OUTCOME_ERROR);
+		this.endToEndCancel = e2eTimer(OUTCOME_CANCEL);
+	}
+
+	private Timer e2eTimer(String outcome) {
+		return Timer.builder("tweebyte.ai.e2e")
+			.description("End-to-end AI streaming request duration, tagged by outcome")
+			.tag("outcome", outcome)
+			.publishPercentiles(0.5, 0.95, 0.99, 0.999)
+			.publishPercentileHistogram()
+			.register(this.registry);
+	}
+
+	public void recordTtft(Duration d) {
+		this.ttftTimer.record(d);
+	}
+
+	public void recordItl(Duration d) {
+		this.itlTimer.record(d);
+	}
+
+	public void recordToolCall(Duration d) {
+		this.toolCallTimer.record(d);
+	}
+
+	public void recordSerialize(Duration d) {
+		this.serializeTimer.record(d);
+	}
+
+	public void recordEndToEnd(Duration d, String outcome) {
+		Timer t = switch (outcome) {
+			case OUTCOME_ERROR -> this.endToEndError;
+			case OUTCOME_CANCEL -> this.endToEndCancel;
+			default -> this.endToEndSuccess;
+		};
+		t.record(d);
+	}
+
+}

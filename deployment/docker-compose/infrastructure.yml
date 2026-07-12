@@ -1,0 +1,448 @@
+# Shared Postgres base — applied identically to user/tweet/interaction DBs.
+# max_connections raised to 300 so PG stays above the benchmark DB pool (max-size 200 per
+# service) + Flyway/admin headroom — otherwise Postgres, not the pool, would be the hidden cap.
+# shared_buffers/work_mem stay at defaults (128MB/4MB). mem_limit=4g is an operator container
+# ceiling (~200 live backends ≈ 2GB, well under), not a tuning knob.
+x-postgres-tuning: &postgres-tuning
+  image: postgres:16.4-alpine
+  mem_limit: 4g
+  # W3 TLS: serve server-side TLS so prod / functional-equivalence (which connect
+  # sslmode=verify-ca / VERIFY_CA) complete the handshake. The mounted key is
+  # root-owned 0600 on the host and unreadable by the in-container postgres user,
+  # so the stock entrypoint is wrapped: copy the cert/key in, chown + chmod, then
+  # exec the real entrypoint with ssl=on. Plaintext connections are still accepted,
+  # so the benchmark path (sslMode=DISABLE) is byte-for-byte unchanged — server TLS
+  # adds zero cost to a non-TLS connection. Each DB mounts ./tls below.
+  command:
+    - "sh"
+    - "-c"
+    - "cp /tls/postgres.crt /var/lib/postgresql/server.crt && cp /tls/postgres.key /var/lib/postgresql/server.key && chown postgres:postgres /var/lib/postgresql/server.crt /var/lib/postgresql/server.key && chmod 600 /var/lib/postgresql/server.key && exec docker-entrypoint.sh postgres -c max_connections=300 -c ssl=on -c ssl_cert_file=/var/lib/postgresql/server.crt -c ssl_key_file=/var/lib/postgresql/server.key"
+
+services:
+  user-service-db:
+    <<: *postgres-tuning
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${TWEEBYTE_DB_PASSWORD:-postgres}
+      POSTGRES_DB: user_service_db
+    ports:
+      - "54321:5432"
+    volumes:
+      - user-service-db-data:/var/lib/postgresql/data
+      # Schema is owned by Flyway and applied by each service at boot (V1__baseline.sql).
+      - ./deployment/docker-compose/tls:/tls:ro  # W3: server cert/key (see anchor)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d user_service_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  tweet-service-db:
+    <<: *postgres-tuning
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${TWEEBYTE_DB_PASSWORD:-postgres}
+      POSTGRES_DB: tweet_service_db
+    ports:
+      - "54322:5432"
+    volumes:
+      - tweet-service-db-data:/var/lib/postgresql/data
+      # Schema is owned by Flyway and applied by each service at boot (V1__baseline.sql).
+      - ./deployment/docker-compose/tls:/tls:ro  # W3: server cert/key (see anchor)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tweet_service_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  interaction-service-db:
+    <<: *postgres-tuning
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${TWEEBYTE_DB_PASSWORD:-postgres}
+      POSTGRES_DB: interaction_service_db
+    ports:
+      - "54323:5432"
+    volumes:
+      - interaction-service-db-data:/var/lib/postgresql/data
+      # Schema is owned by Flyway and applied by each service at boot (V1__baseline.sql).
+      - ./deployment/docker-compose/tls:/tls:ro  # W3: server cert/key (see anchor)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d interaction_service_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.2.5-alpine
+    ports:
+      - "63790:6379"
+      - "63791:6380"
+    volumes:
+      - ./deployment/docker-compose/tls:/tls:ro
+    # W3 TLS: dual-port. 6379 stays plaintext (the benchmark connects here with
+    # redis.ssl.enabled=false), 6380 serves TLS for prod / functional-equivalence
+    # (redis.ssl.enabled=true + the tweebyte bundle). The mounted key is root 0600,
+    # unreadable by the in-container redis user, so the stock entrypoint is wrapped:
+    # copy + chown the key, then exec the real entrypoint with both ports up. The
+    # plaintext port is untouched, so the benchmark path is byte-for-byte neutral.
+    command:
+      - "sh"
+      - "-c"
+      - "cp /tls/redis.crt /tls/redis.key /data/ && chown redis:redis /data/redis.crt /data/redis.key && chmod 600 /data/redis.key && exec docker-entrypoint.sh redis-server --port 6379 --tls-port 6380 --tls-cert-file /data/redis.crt --tls-key-file /data/redis.key --tls-ca-cert-file /tls/ca.crt --tls-auth-clients no"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "localhost", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+
+  # Distributed-tracing backend. Services export OTLP only when TRACING_ENABLED=true;
+  # otherwise this just sits idle. UI at http://localhost:16686.
+  # profile=full: not started for benchmark. Benchmark disables tracing via
+  # management.tracing.enabled=false; starting jaeger wastes ~300 MB for nothing.
+  jaeger:
+    profiles: [full]
+    image: jaegertracing/all-in-one:1.60
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    # Latency-proxy listeners: admin (8474), Redis (26379), the three service
+    # Postgres instances (26432-26434), and the three inter-service inbound hops
+    # (26091-26093, mirroring the 9091-9093 service ports). The proxies themselves
+    # are created by the toxiproxy-config one-shot, which runs in the benchmark
+    # compose profile only. The container always runs ("it starts everything"), but
+    # in prod / functional-equivalence it is an uninitialized idle forwarder — no
+    # proxies, no traffic. In benchmark the apps route through these listeners only
+    # when BENCH_TOXIPROXY_LATENCY_MS>0 (see deployment/docker-compose/compose.sh); otherwise the
+    # proxies sit transparent and the apps connect direct.
+    ports:
+      - "8474:8474"
+      - "26379:26379"
+      - "26432:26432"
+      - "26433:26433"
+      - "26434:26434"
+      - "26091:26091"
+      - "26092:26092"
+      - "26093:26093"
+    command: ["-host=0.0.0.0", "-port=8474"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      user-service-db:
+        condition: service_healthy
+      tweet-service-db:
+        condition: service_healthy
+      interaction-service-db:
+        condition: service_healthy
+
+  toxiproxy-config:
+    image: curlimages/curl:8.7.1
+    # benchmark compose profile ONLY: prod / functional-equivalence never start this,
+    # so their toxiproxy stays an uninitialized idle forwarder. Configures the seven
+    # latency proxies (Redis + 3 DBs + 3 inter-service hops) from the spec
+    # deployment/docker-compose/compose.sh exports (TOXIPROXY_PROXIES) at TOXIPROXY_LATENCY_MS each
+    # direction. The same init script runs on the host for native-local (via
+    # local-infra.sh) — one shared script. Mounted (not inlined) because this Docker
+    # Compose version (v5.1.3) word-splits multi-line command scalars under an array
+    # entrypoint.
+    profiles: [benchmark]
+    environment:
+      TOXIPROXY_URL: http://toxiproxy:8474
+      # Empty spec => the script's built-in transparent (latency-0) Docker fallback.
+      TOXIPROXY_PROXIES: ${TOXIPROXY_PROXIES:-}
+      TOXIPROXY_LATENCY_MS: ${BENCH_TOXIPROXY_LATENCY_MS:-0}
+      TOXIPROXY_JITTER_MS: ${TOXIPROXY_JITTER_MS:-0}
+    depends_on:
+      toxiproxy:
+        condition: service_started
+    volumes:
+      - ./deployment/docker-compose/toxiproxy-config.sh:/usr/local/bin/toxiproxy-config.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/toxiproxy-config.sh"]
+    restart: "no"
+
+  # W1: HashiCorp Vault (dev mode) — the single source of truth for every
+  # application secret. Each of the 8 modules fetches its secrets at boot via
+  # Spring Cloud Vault and fails fast if this is unreachable. Dev mode keeps the
+  # store in memory behind a fixed root token; a real deployment runs Vault
+  # sealed with auto-unseal and scoped policies. UI/API at http://localhost:8200.
+  vault:
+    image: hashicorp/vault:1.17.6
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_TOKEN:-root}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      VAULT_ADDR: http://127.0.0.1:8200
+    ports:
+      - "8200:8200"
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # W1: one-shot KV seeder. Reads the secret values from the compose env (sourced
+  # from the gitignored .env) and writes them into secret/tweebyte. Mounts the
+  # script and execs it — the same cross-compose-version-safe shape as
+  # toxiproxy-config (a multi-line `command:` block is word-split on v5.1.3).
+  vault-init:
+    image: hashicorp/vault:1.17.6
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_TOKEN:-root}
+      TWEEBYTE_DB_PASSWORD: ${TWEEBYTE_DB_PASSWORD:-postgres}
+      TWEEBYTE_ACTUATOR_PASSWORD: ${TWEEBYTE_ACTUATOR_PASSWORD:-changeme-actuator}
+      TWEEBYTE_TLS_KEYSTORE_PASSWORD: ${TWEEBYTE_TLS_KEYSTORE_PASSWORD:-changeit}
+      TWEEBYTE_TLS_TRUSTSTORE_PASSWORD: ${TWEEBYTE_TLS_TRUSTSTORE_PASSWORD:-changeit}
+      TWEEBYTE_KC_CLIENT_SECRET: ${TWEEBYTE_KC_CLIENT_SECRET:-tweebyte-app-secret}
+      TWEEBYTE_LLM_API_KEY: ${TWEEBYTE_LLM_API_KEY:-live-llm}
+    volumes:
+      - ./deployment/docker-compose/vault-init.sh:/usr/local/bin/vault-init.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/vault-init.sh"]
+    restart: "no"
+
+  # W2: Keycloak's backing store. A dedicated Postgres so the realm, clients,
+  # and provisioned users survive container restarts independently of the three
+  # application DBs. Credentials are infra-bootstrap (env with dev defaults, same
+  # shape as sonarqube-db / the application DBs) — the application never reads
+  # them; it talks only to Keycloak's HTTP API.
+  # profile=full: not started for benchmark (security autoconfiguration excluded,
+  # app.keycloak.enabled=false). Started for prod and functional-equivalence
+  # (Cucumber auth scenarios need a live realm).
+  keycloak-db:
+    profiles: [full]
+    image: postgres:16.4-alpine
+    mem_limit: 4g
+    environment:
+      POSTGRES_USER: ${KEYCLOAK_DB_USER:-keycloak}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+      POSTGRES_DB: ${KEYCLOAK_DB_NAME:-keycloak}
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KEYCLOAK_DB_USER:-keycloak} -d ${KEYCLOAK_DB_NAME:-keycloak}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # W2: Keycloak — the identity provider. On prod / functional-equivalence the
+  # user-service delegates token issuance here. profile=full (same as keycloak-db). (ROPC password grant for
+  # login/register; client_credentials for Admin-API user provisioning via the
+  # tweebyte-app service account) and the gateways validate the issued JWTs
+  # against this realm's JWKS. The benchmark path never touches it: workloads hit
+  # the services directly with no bearer, and STACK_PROFILE=benchmark gates the
+  # Keycloak beans off (app.keycloak.enabled=false), so Keycloak sits idle infra
+  # — exactly like Jaeger/Sonar/Grafana. The realm (tweebyte) is imported on
+  # first boot from realm-export.json; the client secret is env-substituted at
+  # import time and seeded into Vault for the app, so it never lives in the
+  # committed JSON. Runs start-dev (HTTP, relaxed hostname) — the dev-mode
+  # counterpart to the dev-mode Vault; a real deployment runs `start --optimized`
+  # behind TLS with a pinned hostname. Admin console on http://localhost:8090.
+  keycloak:
+    profiles: [full]
+    image: quay.io/keycloak/keycloak:25.0.6
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/${KEYCLOAK_DB_NAME:-keycloak}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+      # Substituted into realm-export.json's tweebyte-app client at import time so
+      # the secret is never committed. The same value is seeded into Vault for the
+      # app side (see vault-init.sh / .env.example).
+      TWEEBYTE_KC_CLIENT_SECRET: ${TWEEBYTE_KC_CLIENT_SECRET:-tweebyte-app-secret}
+    command: ["start-dev", "--import-realm"]
+    ports:
+      - "8090:8080"
+    volumes:
+      - ./deployment/docker-compose/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 45s
+
+  # Persistent SonarQube server for the CI lint gate. It is long-lived (NOT spun
+  # up per run) so it keeps issue history + the new-code baseline across analyses;
+  # the CI runner reaches it via SONAR_HOST_URL and a token. Backed by its own
+  # Postgres so analysis history survives container restarts.
+  # Host requirement (Linux self-hosted runner): the embedded Elasticsearch needs
+  #   sysctl -w vm.max_map_count=524288
+  # raised on the host before this container will start.
+  # profile=full: started for prod. CI connects to the long-lived instance via SONAR_HOST_URL.
+  sonarqube-db:
+    profiles: [full]
+    image: postgres:16.4-alpine
+    mem_limit: 4g
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+      POSTGRES_DB: sonar
+    volumes:
+      - sonarqube-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d sonar"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  sonarqube:
+    profiles: [full]
+    image: sonarqube:10.6-community
+    mem_limit: 4g
+    depends_on:
+      sonarqube-db:
+        condition: service_healthy
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://sonarqube-db:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: sonar
+    ports:
+      - "9000:9000"
+    volumes:
+      - sonarqube-data:/opt/sonarqube/data
+      - sonarqube-extensions:/opt/sonarqube/extensions
+      - sonarqube-logs:/opt/sonarqube/logs
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9000/api/system/status || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  # Alert routing and silencing frontend. Prometheus fires alerts here over the
+  # compose network (alertmanager:9093); the null-sink receiver routes everything
+  # safely without real paging. The host publish is remapped to 9193 because the
+  # canonical 9093 collides with the host-run interaction-service. UI at
+  # http://localhost:9193.
+  # profile=full: not started for benchmark (tracing + metrics disabled on the
+  # measured path; starting Prometheus/Grafana/Alertmanager wastes RAM for nothing).
+  alertmanager:
+    profiles: [full]
+    image: prom/alertmanager:v0.27.0
+    ports:
+      - "9193:9093"
+    volumes:
+      - ./deployment/docker-compose/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+  # Metrics store for the full-profile observability stack. Scrapes the
+  # actuator /actuator/prometheus endpoints of the host-accessible application
+  # services (via host.docker.internal) plus its own /metrics. Grafana reads
+  # from here as the default datasource. UI at http://localhost:9090.
+  prometheus:
+    profiles: [full]
+    image: prom/prometheus:v2.54.1
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deployment/docker-compose/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deployment/docker-compose/observability/rules:/etc/prometheus/rules:ro
+    # Lets the container resolve the benchmark host on Linux so it can scrape
+    # the host-run services on host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - alertmanager
+
+  # Log aggregation backend. Promtail ships container logs here; Grafana queries
+  # it as the Loki datasource. Runs on the image's built-in default config.
+  loki:
+    profiles: [full]
+    image: grafana/loki:3.1.1
+    ports:
+      - "3100:3100"
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - loki-data:/loki
+
+  # Log shipper: discovers infra containers via the Docker socket and forwards
+  # their logs to Loki. Captures infra-container logs only — the host-run
+  # benchmark services are not containerized (see promtail.yml).
+  promtail:
+    profiles: [full]
+    image: grafana/promtail:3.1.1
+    volumes:
+      - ./deployment/docker-compose/observability/promtail.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: ["-config.file=/etc/promtail/config.yml"]
+    depends_on:
+      - loki
+
+  # Dashboards / single pane of glass over the three signals. Anonymous admin
+  # access is enabled for the dev/bench context (no login). Datasources for
+  # Prometheus, Loki, and Jaeger are provisioned on startup. UI at
+  # http://localhost:3000.
+  grafana:
+    profiles: [full]
+    image: grafana/grafana:11.2.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deployment/docker-compose/observability/grafana/provisioning/datasources/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./deployment/docker-compose/observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - prometheus
+      - loki
+
+  # Single-node Kafka in KRaft mode (combined broker+controller, no Zookeeper).
+  # Provisioned for FUTURE use — it is intentionally NOT wired to any producer
+  # or consumer yet. Host clients reach the broker on localhost:9094.
+  # profile=full: not started for benchmark (no producer/consumer wired yet).
+  kafka:
+    profiles: [full]
+    image: apache/kafka:3.8.0
+    ports:
+      - "9094:9094"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9095
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9095,EXTERNAL://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+volumes:
+  user-service-db-data:
+  tweet-service-db-data:
+  interaction-service-db-data:
+  keycloak-db-data:
+  sonarqube-db-data:
+  sonarqube-data:
+  sonarqube-extensions:
+  sonarqube-logs:
+  grafana-data:
+  loki-data:
+  kafka-data:

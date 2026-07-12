@@ -1,0 +1,302 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+# Least-privilege default; jobs widen as needed.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: "21"
+  JAVA_DISTRIBUTION: "temurin"
+
+jobs:
+  build-test-lint:
+    name: build/test/lint (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - backend/async/gateway-service
+          - backend/async/user-service
+          - backend/async/tweet-service
+          - backend/async/interaction-service
+          - backend/reactive/gateway-service
+          - backend/reactive/user-service
+          - backend/reactive/tweet-service
+          - backend/reactive/interaction-service
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      - name: Build, unit test and lint
+        working-directory: ${{ matrix.module }}
+        run: >-
+          ./mvnw -B -ntp
+          verify
+          spotless:check
+          checkstyle:check
+          pmd:check
+          spotbugs:check
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-${{ strategy.job-index }}
+          path: ${{ matrix.module }}/target/surefire-reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  functional-equivalence-lint:
+    name: lint (testing/functional-equivalence)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      # Same bound verify-phase gates as the service modules (checkstyle / spotless /
+      # PMD / SpotBugs), minus the Cucumber integration tests that boot the full
+      # Docker stack and are intentionally outside this GitHub lint gate.
+      - name: Lint (checkstyle / spotless / PMD / SpotBugs)
+        working-directory: testing/functional-equivalence
+        run: >-
+          ./mvnw -B -ntp
+          verify
+          -DskipITs
+          spotless:check
+          checkstyle:check
+          pmd:check
+          spotbugs:check
+
+  frontend:
+    name: frontend (lint/test/build)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (ESLint)
+        run: npm run lint
+
+      - name: Unit test + coverage (vitest, 90% gate)
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+  sonarcloud:
+    name: sonarcloud (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    needs: build-test-lint
+    permissions:
+      contents: read
+    # Sonar needs a token; skip cleanly on forks where the secret is absent.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - backend/async/gateway-service
+          - backend/async/user-service
+          - backend/async/tweet-service
+          - backend/async/interaction-service
+          - backend/reactive/gateway-service
+          - backend/reactive/user-service
+          - backend/reactive/tweet-service
+          - backend/reactive/interaction-service
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history gives Sonar accurate new-code / blame data.
+          fetch-depth: 0
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: sonar-${{ runner.os }}
+          restore-keys: sonar-${{ runner.os }}
+
+      - name: Build with coverage and run SonarCloud scan
+        working-directory: ${{ matrix.module }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: >-
+          ./mvnw -B -ntp
+          verify
+          org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
+          -Dsonar.host.url=https://sonarcloud.io
+          -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+          -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}-$(echo '${{ matrix.module }}' | tr '/' '-')
+          -Dsonar.qualitygate.wait=true
+
+  security:
+    name: security (trivy + owasp + sbom)
+    runs-on: ubuntu-latest
+    needs: build-test-lint
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-fs.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+      - name: OWASP Dependency-Check
+        uses: dependency-check/Dependency-Check_Action@3.3.0
+        with:
+          project: tweebyte
+          path: .
+          format: SARIF
+          args: >-
+            --scan backend/async --scan backend/reactive
+            --failOnCVSS 7
+            --nvdApiKey ${{ secrets.NVD_API_KEY }}
+
+      - name: Upload OWASP SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/dependency-check-report.sarif
+          category: owasp-dependency-check
+
+      - name: Generate CycloneDX SBOM (Syft)
+        uses: anchore/sbom-action@v0.17.7
+        with:
+          path: .
+          format: cyclonedx-json
+          artifact-name: sbom.cyclonedx.json
+
+  build-sign-push:
+    name: image build + cosign sign + push (${{ matrix.service }} / ${{ matrix.stack }})
+    runs-on: ubuntu-latest
+    needs: [build-test-lint, functional-equivalence-lint, frontend, security]
+    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+    permissions:
+      contents: read
+      # cosign keyless OIDC token.
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [async, reactive]
+        service: [gateway-service, user-service, tweet-service, interaction-service]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.7.0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/tweebyte-${{ matrix.service }}-${{ matrix.stack }}
+          tags: |
+            type=sha,format=long
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: backend/${{ matrix.stack }}/${{ matrix.service }}
+          file: backend/${{ matrix.stack }}/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+
+      - name: Cosign keyless sign
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/tweebyte-${{ matrix.service }}-${{ matrix.stack }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"

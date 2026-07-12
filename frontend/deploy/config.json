@@ -1,0 +1,13 @@
+{
+  "activeGatewayId": "gateway",
+  "useMock": false,
+  "healthPollMs": 10000,
+  "showLatency": true,
+  "gateways": [
+    {
+      "id": "gateway",
+      "label": "Gateway",
+      "baseUrl": ""
+    }
+  ]
+}

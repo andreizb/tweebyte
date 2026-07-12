@@ -1,0 +1,22 @@
+/*
+ * Copyright 2026 Tweebyte contributors
+ * SPDX-License-Identifier: MIT
+ */
+
+package ro.tweebyte.tweetservice;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+@Slf4j
+public class TweetServiceApplication {
+
+	public static void main(String[] args) {
+		log.info("os.arch={}, availableProcessors={}", System.getProperty("os.arch"),
+				Runtime.getRuntime().availableProcessors());
+		SpringApplication.run(TweetServiceApplication.class, args);
+	}
+
+}

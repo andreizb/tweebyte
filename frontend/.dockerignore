@@ -1,0 +1,12 @@
+node_modules
+dist
+.angular
+coverage
+coverage-e2e
+test-results
+playwright-report
+e2e
+*.log
+*.cjs
+.git
+.vscode

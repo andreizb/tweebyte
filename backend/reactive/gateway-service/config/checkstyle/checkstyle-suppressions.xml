@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+		"-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+		"https://checkstyle.org/dtds/suppressions_1_2.dtd">
+<suppressions>
+	<!-- Tests don't require Javadoc, mirroring Spring's own suppressions. -->
+	<suppress files="[\\/]src[\\/]test[\\/]java[\\/]" checks="Javadoc.*"/>
+	<!-- We standardise on parenthesis-free single lambda parameters (x -> ...), the
+	     dominant Java idiom and the default of IntelliJ/Sonar inspections. SpringChecks
+	     mandates the opposite; we deliberately opt out of that one Spring convention. -->
+	<suppress checks="SpringLambda"/>
+</suppressions>

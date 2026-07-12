@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ruleset name="tweebyte"
+		xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+		xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.net/ruleset_2_0_0.xsd">
+
+	<description>
+		Maven PMD Plugin default ruleset, minus TooManyStaticImports. That rule
+		conflicts with the AssertJ/BDDMockito static imports the Spring checkstyle
+		config mandates in tests (RegexpSinglelineJava forbids qualified JUnit
+		assertions), so the two linters cannot both be satisfied. Every other
+		default rule is retained and enforced.
+	</description>
+
+	<rule ref="rulesets/java/maven-pmd-plugin-default.xml">
+		<exclude name="TooManyStaticImports"/>
+	</rule>
+
+</ruleset>

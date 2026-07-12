@@ -1,0 +1,27 @@
+# Angular / Node
+/dist
+/tmp
+/out-tsc
+/.angular/cache
+.angular/
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+.DS_Store
+
+# Test / coverage
+/coverage
+/coverage-e2e
+/test-results
+/playwright-report
+*.lcov
+
+# Env
+.env
+.env.local

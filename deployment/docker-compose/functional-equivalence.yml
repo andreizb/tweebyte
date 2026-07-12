@@ -1,0 +1,83 @@
+# Functional-equivalence test overlay.
+#
+# This file is layered on top of `infrastructure.yml` + `<stack>.yml` ONLY when
+# the `functional-equivalence` profile is selected via:
+#
+#     ./run.sh runtime up <async|reactive> functional-equivalence
+#
+# Its sole purpose is to attach the JaCoCo Java agent to each microservice's
+# JVM so that line + branch coverage produced by Cucumber scenarios in
+# `testing/functional-equivalence/` can be aggregated into a per-service report.
+#
+# Critically: this file is NEVER loaded for `prod` or `benchmark` runs. The
+# performance-testing path (`./run.sh runtime up ... benchmark`,
+# `./run.sh bench k6 ...`) sees zero JaCoCo overhead, no extra mounts, no
+# JAVA_TOOL_OPTIONS additions — exactly as required for clean perf measurement.
+#
+# Prerequisites:
+#  - The JaCoCo agent jar must be present at the host path
+#    `testing/functional-equivalence/target/jacoco-agent.jar`. The Maven build of
+#    `testing/functional-equivalence` extracts this from the `org.jacoco:org.jacoco.agent`
+#    dependency during the `pre-integration-test` phase. Run
+#    `mvn -f testing/functional-equivalence/pom.xml process-test-resources` once before bringing
+#    the stack up in functional-equivalence mode if the file is missing.
+#  - The host directory `testing-results/functional-equivalence/jacoco/<stack>/` must
+#    exist (or will be auto-created by `./run.sh runtime up <stack>
+#    functional-equivalence` / the Cucumber harness).
+#
+# Output:
+#  - Each service exposes a localhost-only JaCoCo TCP dump port. The Cucumber
+#    harness calls `jacococli dump` before teardown and writes per-instance `.exec`
+#    files to `testing-results/functional-equivalence/jacoco/<stack>/<service>.exec`.
+#  - The Cucumber test harness's `@AfterAll` aggregates these via the
+#    JaCoCo Maven plugin's `report` goal.
+
+services:
+  # NOTE on relative paths below: run.sh invokes docker compose with
+  # `--project-directory ${REPO_ROOT}`, so relative paths are resolved
+  # against the repo root, not against this file's location.
+  gateway-service:
+    environment:
+      JAVA_TOOL_OPTIONS: "-javaagent:/jacoco-agent/jacoco-agent.jar=output=tcpserver,address=*,port=6301,dumponexit=false"
+      OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
+    volumes:
+      - ./testing/functional-equivalence/target/jacoco-agent.jar:/jacoco-agent/jacoco-agent.jar:ro
+      - ./testing-results/functional-equivalence/jacoco:/jacoco-out
+    ports:
+      - "127.0.0.1:6301:6301"
+    # stop_grace_period gives Spring Boot graceful-shutdown + the JaCoCo agent's
+    # shutdown hook enough time to flush the .exec file before SIGKILL.
+    stop_grace_period: 60s
+
+  user-service:
+    environment:
+      JAVA_TOOL_OPTIONS: "-javaagent:/jacoco-agent/jacoco-agent.jar=output=tcpserver,address=*,port=6302,dumponexit=false"
+      OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
+    volumes:
+      - ./testing/functional-equivalence/target/jacoco-agent.jar:/jacoco-agent/jacoco-agent.jar:ro
+      - ./testing-results/functional-equivalence/jacoco:/jacoco-out
+    ports:
+      - "127.0.0.1:6302:6302"
+    stop_grace_period: 60s
+
+  tweet-service:
+    environment:
+      JAVA_TOOL_OPTIONS: "-javaagent:/jacoco-agent/jacoco-agent.jar=output=tcpserver,address=*,port=6303,dumponexit=false ${TWEET_JAVA_TOOL_OPTIONS:-}"
+      OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
+    volumes:
+      - ./testing/functional-equivalence/target/jacoco-agent.jar:/jacoco-agent/jacoco-agent.jar:ro
+      - ./testing-results/functional-equivalence/jacoco:/jacoco-out
+    ports:
+      - "127.0.0.1:6303:6303"
+    stop_grace_period: 60s
+
+  interaction-service:
+    environment:
+      JAVA_TOOL_OPTIONS: "-javaagent:/jacoco-agent/jacoco-agent.jar=output=tcpserver,address=*,port=6304,dumponexit=false ${INTERACTION_JAVA_TOOL_OPTIONS:-}"
+      OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
+    volumes:
+      - ./testing/functional-equivalence/target/jacoco-agent.jar:/jacoco-agent/jacoco-agent.jar:ro
+      - ./testing-results/functional-equivalence/jacoco:/jacoco-out
+    ports:
+      - "127.0.0.1:6304:6304"
+    stop_grace_period: 60s

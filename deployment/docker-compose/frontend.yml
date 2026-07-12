@@ -1,0 +1,40 @@
+# Frontend SPA (Angular production build served by nginx). Stack-AGNOSTIC: the same
+# image runs against either gateway — nginx serves the static bundle and same-origin
+# reverse-proxies /user-service, /tweet-service, /interaction-service and /actuator to
+# gateway-service:8080 (no CORS, no published-gateway-URL dependency). Chain AFTER a
+# stack overlay so gateway-service exists on the shared default network, and pass
+# --profile full so Keycloak (and keycloak-db) come up — the SPA delegates
+# login/register to Keycloak, so without it authentication breaks:
+#
+#   docker compose --profile full \
+#                  -f deployment/docker-compose/infrastructure.yml \
+#                  -f deployment/docker-compose/async.yml \
+#                  -f deployment/docker-compose/frontend.yml up -d
+#   # swap async.yml -> reactive.yml to run the SAME UI on the reactive stack.
+#
+# Or via the entry script (chains this overlay + activates --profile full):
+#   WITH_FRONTEND=1 ./run.sh runtime up async prod
+#
+# For a registry/pull deploy, combine with deploy.yml (which re-declares this service
+# image-only). Published on FRONTEND_PORT (default 8081); IMAGE_PREFIX/TAG/REGISTRY
+# follow the same conventions as the application services.
+services:
+  frontend:
+    image: ${REGISTRY:+${REGISTRY}/}${IMAGE_PREFIX:-tweebyte}-frontend:${TAG:-local}
+    build:
+      # Repo-root-relative (like async.yml's ./backend/async/...): compose resolves build
+      # contexts against --project-directory, which run.sh / the commands below set
+      # to the repo root.
+      context: ./frontend
+    ports:
+      - "${FRONTEND_PORT:-8081}:80"
+    depends_on:
+      gateway-service:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

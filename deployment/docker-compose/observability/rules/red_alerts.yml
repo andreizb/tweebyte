@@ -1,0 +1,102 @@
+# RED method alert rules for Spring Boot 3 / Micrometer Prometheus output.
+# Metric names match the actuator /actuator/prometheus endpoint defaults:
+#   http_server_requests_seconds_count  — request counter (tagged by status, uri, method)
+#   http_server_requests_seconds_sum    — total latency accumulator
+#   http_server_requests_seconds_bucket — histogram buckets (for p99 via histogram_quantile)
+groups:
+  - name: red-request-rate
+    interval: 30s
+    rules:
+      # Alert when the request rate across any service drops to near zero
+      # (possible crash or traffic loss).
+      - alert: LowRequestRate
+        expr: |
+          sum by (job) (
+            rate(http_server_requests_seconds_count[2m])
+          ) < 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low request rate on {{ $labels.job }}"
+          description: "Request rate is {{ $value | humanize }} req/s (< 0.1) for job {{ $labels.job }}"
+
+  - name: red-error-rate
+    interval: 30s
+    rules:
+      # Alert when the 5xx error ratio exceeds 1 % over a 5-minute window.
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum by (job) (
+              rate(http_server_requests_seconds_count{status=~"5.."}[5m])
+            )
+          )
+          /
+          (
+            sum by (job) (
+              rate(http_server_requests_seconds_count[5m])
+            ) > 0
+          )
+          > 0.01
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High 5xx error rate on {{ $labels.job }}"
+          description: "Error ratio is {{ $value | humanizePercentage }} (> 1 %) for job {{ $labels.job }}"
+
+      # Alert when the 4xx client-error ratio exceeds 10 %.
+      - alert: High4xxRate
+        expr: |
+          (
+            sum by (job) (
+              rate(http_server_requests_seconds_count{status=~"4.."}[5m])
+            )
+          )
+          /
+          (
+            sum by (job) (
+              rate(http_server_requests_seconds_count[5m])
+            ) > 0
+          )
+          > 0.10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 4xx rate on {{ $labels.job }}"
+          description: "Client-error ratio is {{ $value | humanizePercentage }} (> 10 %) for job {{ $labels.job }}"
+
+  - name: red-latency
+    interval: 30s
+    rules:
+      # Alert when estimated p99 latency (from histogram_quantile) exceeds 2 s.
+      - alert: HighP99Latency
+        expr: |
+          histogram_quantile(0.99,
+            sum by (job, le) (
+              rate(http_server_requests_seconds_bucket[5m])
+            )
+          ) > 2.0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p99 latency on {{ $labels.job }}"
+          description: "p99 latency is {{ $value | humanizeDuration }} (> 2 s) for job {{ $labels.job }}"
+
+      # Alert when p50 (median) latency exceeds 500 ms — a basic saturation signal.
+      - alert: HighMedianLatency
+        expr: |
+          histogram_quantile(0.50,
+            sum by (job, le) (
+              rate(http_server_requests_seconds_bucket[5m])
+            )
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High median latency on {{ $labels.job }}"
+          description: "p50 latency is {{ $value | humanizeDuration }} (> 500 ms) for job {{ $labels.job }}"

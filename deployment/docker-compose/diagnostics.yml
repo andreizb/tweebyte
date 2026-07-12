@@ -1,0 +1,163 @@
+# Diagnostics overlay — OPT-IN, never part of a measured profile.
+#
+# Layers profiling + live-introspection onto the three measured app services
+# (user/tweet/interaction) on EITHER stack (async.yml or reactive.yml) — symmetric by
+# construction (same service names, same flags). Preserves the -Xmx4g heap cap. JFR
+# `settings=profile` + PreserveFramePointer carry ~1-2% overhead, so this overlay is
+# DELIBERATELY separate from the benchmark profile: bring it up only to INVESTIGATE a
+# bad cell (re-run that one workload under it), never for the numbers that go in
+# RESULTS.md. The measured base compose already runs HeapDumpOnOutOfMemoryError → /diag
+# always-on (perf-neutral, fires only on OOM); this overlay adds the flags that DO carry
+# overhead (JFR profile recording, PreserveFramePointer) plus JMX/JDWP ports + async-profiler.
+#
+# Local-vs-container model (why some tools attach in-container and others reach in from the
+# host): the JVM attach API is namespace-local, so your LOCAL jcmd/jstack/jmap/async-profiler
+# CANNOT reach a container JVM. What CAN reach in: JMX + JDWP (network protocols, ports below).
+# What must run IN the container: async-profiler (native attach; mounted) and `kill -3` (built
+# in). Analysis of the produced files (.jfr, .hprof) runs HOST-SIDE with the host JDK
+# (`jfr print`) + Eclipse MAT — no in-container JDK needed. What it gives a debugging session:
+#   - CPU / alloc / lock FLAMEGRAPHS — async-profiler (mounted at /opt/async-profiler);
+#     run `fetch-async-profiler.sh` once first. Also JFR ExecutionSample (always on).
+#   - JFR — always recording to the host /diag volume (settings=profile, dumponexit).
+#   - THREAD DUMPS — `docker exec <c> kill -3 1` → `docker logs <c>` (works on JRE).
+#   - HEAP DUMPS (for MAT, analysed host-side) — auto on OOM to /diag (ALWAYS-ON in the base
+#     compose, not just here), or on-demand via JMX (HotSpotDiagnostic.dumpHeap → /diag); read
+#     the .hprof host-side with MAT (or its headless ParseHeapDump.sh for a CLI leak report).
+#   - LIVE INTROSPECTION — JMX (JMC / VisualVM) on 127.0.0.1:<JMX port>.
+#   - REMOTE DEBUG — JDWP on 127.0.0.1:<JDWP port> (suspend=n).
+#   - METRICS — /actuator/prometheus (works WITHOUT this overlay too).
+# All artifacts land on the host under ./testing-results/diag (gitignored) — no docker cp.
+#
+# Ports:  service           JMX    JDWP
+#         user-service       9411   5005
+#         tweet-service      9412   5006
+#         interaction-service 9413  5007
+#
+# ---- Usage ----
+#   ./testing/performance/tools/fetch-async-profiler.sh   # once, populates the mount
+#   # Easy path — DIAG=1 threads this overlay through the runtime wrapper WITH the correct
+#   # benchmark routing env (recommended; build_env_prefix sets STACK_PROFILE/SVC_SCHEME/…):
+#   DIAG=1 ./run.sh runtime up async benchmark     # or: reactive
+#   # Explicit path — ONLY if DIAG=1 is unavailable. The benchmark env MUST be prefixed or the
+#   # apps boot NON-benchmark (TLS on, breakers live, wrong cache ports): SPRING_PROFILES_ACTIVE
+#   # is ${STACK_PROFILE:-}, EMPTY by default. The overlay itself only overrides JAVA_TOOL_OPTIONS,
+#   # so the profile is whatever this env says — get it wrong and the whole run is meaningless.
+#   STACK=async
+#   STACK_PROFILE=benchmark SVC_SCHEME=http TWEET_CACHE_PORT=6379 INTERACTION_CACHE_PORT=6379 \
+#   docker compose --project-directory "$PWD" --project-name tweebyte \
+#     -f deployment/docker-compose/infrastructure.yml \
+#     -f deployment/docker-compose/$STACK.yml \
+#     -f deployment/docker-compose/diagnostics.yml \
+#     up -d --build user-service tweet-service interaction-service
+#
+#   # async-profiler — 30s CPU flamegraph of the tweet-service JVM (PID 1):
+#   docker exec tweebyte-tweet-service-1 /opt/async-profiler/bin/asprof \
+#     -d 30 -f /diag/tweet-cpu.html 1
+#   # (collapsed/-o collapsed for a foldable; -e alloc / -e lock for other modes;
+#   #  falls back to ctimer mode automatically if the Docker VM blocks perf_events.)
+#
+#   # JFR — recordings stream live to ./testing-results/diag/jfr-<svc>/ ; analyse host-side:
+#   jfr print --events jdk.ExecutionSample,jdk.JavaMonitorEnter,jdk.SocketRead \
+#     testing-results/diag/jfr-tweet/*.jfr | less
+#
+#   # JMX: connect JMC / VisualVM to 127.0.0.1:9412 (no auth, no TLS).
+#   # The host has the full Temurin 21 JDK (sdkman) so jfr/JMC/MAT run host-side.
+
+services:
+  user-service:
+    cap_add:
+      - SYS_ADMIN            # async-profiler perf_event sampling (best-effort in the VM)
+    security_opt:
+      - seccomp:unconfined   # allow perf_event_open / ptrace attach for async-profiler
+    environment:
+      # rmi.port == jmxremote.port and a 1:1 host mapping keep the RMI stub address
+      # reachable from the host (the classic JMX-in-Docker gotcha).
+      JAVA_TOOL_OPTIONS: >-
+        -Xmx4g
+        -XX:+FlightRecorder
+        -XX:StartFlightRecording=name=diag,settings=profile,disk=true,maxsize=2g,dumponexit=true,filename=/diag/user.jfr
+        -XX:FlightRecorderOptions=repository=/diag/jfr-user
+        -XX:+UnlockDiagnosticVMOptions
+        -XX:+DebugNonSafepoints
+        -XX:+PreserveFramePointer
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/diag/
+        -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.port=9411
+        -Dcom.sun.management.jmxremote.rmi.port=9411
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+        -Dcom.sun.management.jmxremote.local.only=false
+        -Djava.rmi.server.hostname=127.0.0.1
+    ports:
+      - "9411:9411"
+      - "5005:5005"
+    volumes:
+      # /diag is mounted by the base compose (always-on, for OOM dumps); only the
+      # async-profiler tool dir is overlay-specific.
+      - ${ASYNC_PROFILER_DIR:-./testing/performance/tools/async-profiler}:/opt/async-profiler:ro
+
+  tweet-service:
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      JAVA_TOOL_OPTIONS: >-
+        -Xmx4g
+        -XX:+FlightRecorder
+        -XX:StartFlightRecording=name=diag,settings=profile,disk=true,maxsize=2g,dumponexit=true,filename=/diag/tweet.jfr
+        -XX:FlightRecorderOptions=repository=/diag/jfr-tweet
+        -XX:+UnlockDiagnosticVMOptions
+        -XX:+DebugNonSafepoints
+        -XX:+PreserveFramePointer
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/diag/
+        -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5006
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.port=9412
+        -Dcom.sun.management.jmxremote.rmi.port=9412
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+        -Dcom.sun.management.jmxremote.local.only=false
+        -Djava.rmi.server.hostname=127.0.0.1
+    ports:
+      - "9412:9412"
+      - "5006:5006"
+    volumes:
+      # /diag is mounted by the base compose (always-on, for OOM dumps); only the
+      # async-profiler tool dir is overlay-specific.
+      - ${ASYNC_PROFILER_DIR:-./testing/performance/tools/async-profiler}:/opt/async-profiler:ro
+
+  interaction-service:
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      JAVA_TOOL_OPTIONS: >-
+        -Xmx4g
+        -XX:+FlightRecorder
+        -XX:StartFlightRecording=name=diag,settings=profile,disk=true,maxsize=2g,dumponexit=true,filename=/diag/interaction.jfr
+        -XX:FlightRecorderOptions=repository=/diag/jfr-interaction
+        -XX:+UnlockDiagnosticVMOptions
+        -XX:+DebugNonSafepoints
+        -XX:+PreserveFramePointer
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/diag/
+        -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5007
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.port=9413
+        -Dcom.sun.management.jmxremote.rmi.port=9413
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+        -Dcom.sun.management.jmxremote.local.only=false
+        -Djava.rmi.server.hostname=127.0.0.1
+    ports:
+      - "9413:9413"
+      - "5007:5007"
+    volumes:
+      # /diag is mounted by the base compose (always-on, for OOM dumps); only the
+      # async-profiler tool dir is overlay-specific.
+      - ${ASYNC_PROFILER_DIR:-./testing/performance/tools/async-profiler}:/opt/async-profiler:ro

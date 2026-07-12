@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="user-create-test-plan">
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" testname="User Defined Variables">
+        <collectionProp name="Arguments.arguments"/>
+      </elementProp>
+    </TestPlan>
+    <hashTree>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Thread Group">
+        <stringProp name="ThreadGroup.num_threads">${__P(concurrency,100)}</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">${__P(ramp_time,60)}</stringProp>
+        <stringProp name="ThreadGroup.duration">${__P(duration,240)}</stringProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <boolProp name="ThreadGroup.scheduler">true</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="Loop Controller">
+          <intProp name="LoopController.loops">-1</intProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="HTTP Request">
+          <stringProp name="HTTPSampler.domain">${__P(target_host,localhost)}</stringProp>
+          <stringProp name="HTTPSampler.protocol">${__P(target_scheme,http)}</stringProp>
+          <stringProp name="HTTPSampler.port">${__P(target_port,9093)}</stringProp>
+          <stringProp name="HTTPSampler.path">/follows/${followedId}/${followerId}</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="User Defined Variables">
+            <collectionProp name="Arguments.arguments"/>
+          </elementProp>
+          <stringProp name="HTTPSampler.implementation">HttpClient4</stringProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="Derive follow pair from cohort">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="script">import java.util.concurrent.atomic.AtomicLong
+
+// Inexhaustible (follower, followed) pair generator. Each thread caches references to a
+// shared cohort list + one global AtomicLong, so the only cross-thread op per iteration
+// is a single CAS (lighter than the old synchronized shareMode.all CSV reader). The
+// one-time global load of the cohort CSV is guarded on props.
+def cohort = vars.getObject('fc_cohort')
+if (cohort == null) {
+    synchronized (props) {
+        if (props.get('fc_cohort') == null) {
+            String path = props.getProperty('user_ids_file')
+            def ids = new ArrayList(1048576)
+            new File(path).withReader('UTF-8') {
+                it.readLine()
+                String line
+                while ((line = it.readLine()) != null) {
+                    line = line.trim()
+                    if (!line.isEmpty()) ids.add(line)
+                }
+            }
+            if (ids.isEmpty()) throw new IllegalStateException('follow-create cohort CSV is empty: ' + path)
+            props.put('fc_cohort', ids)
+            props.put('fc_n', Integer.valueOf(ids.size()))
+            props.put('fc_counter', new AtomicLong(0L))
+        }
+    }
+    cohort = props.get('fc_cohort')
+    vars.putObject('fc_cohort', cohort)
+    vars.putObject('fc_n', props.get('fc_n'))
+    vars.putObject('fc_counter', props.get('fc_counter'))
+}
+
+int n = ((Integer) vars.getObject('fc_n')).intValue()
+AtomicLong counter = (AtomicLong) vars.getObject('fc_counter')
+long c = counter.getAndIncrement()
+int followerIdx = (int) (c % n)
+// Lap-dependent offset: up to ~n*n distinct pairs before any repeat. A single cell
+// (its follows table TRUNCATEd first) never reaches n*n iterations, so it can never
+// re-issue a pair -- no duplicate-swallow contamination of the measured tail.
+long offset = 1L + (c / n)
+int followedIdx = (int) ((followerIdx + offset) % n)
+if (followedIdx == followerIdx) followedIdx = (followerIdx + 1) % n
+vars.put('followerId', (String) cohort.get(followerIdx))
+vars.put('followedId', (String) cohort.get(followedIdx))
+</stringProp>
+          </JSR223PreProcessor>
+          <hashTree/>
+        </hashTree>
+        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report" enabled="false">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename">${__P(filtered_jtl,)}</stringProp>
+          <boolProp name="ResultCollector.success_only_logging">true</boolProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="View Results Tree" enabled="false">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename">${__P(filtered_jtl,)}</stringProp>
+        </ResultCollector>
+        <hashTree/>
+      </hashTree>
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>

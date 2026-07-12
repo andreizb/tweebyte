@@ -1,0 +1,258 @@
+services:
+  gateway-service:
+    image: ${IMAGE_PREFIX:-tweebyte}-gateway-service-async:${TAG:-local}
+    build:
+      context: ./backend/async/gateway-service
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_PORT: "8080"
+      # W3 TLS: downstream scheme follows the stack's TLS posture. Default https
+      # (prod / functional-equivalence run with server.ssl + east-west mTLS on);
+      # deployment/docker-compose/compose.sh forces SVC_SCHEME=http for the benchmark profile so the
+      # measured fan-out stays plaintext. Same knob across all 4 services.
+      USER_SERVICE_URL: ${USER_SERVICE_URL:-${SVC_SCHEME:-https}://user-service:9091/}
+      TWEET_SERVICE_URL: ${TWEET_SERVICE_URL:-${SVC_SCHEME:-https}://tweet-service:9092/}
+      INTERACTION_SERVICE_URL: ${INTERACTION_SERVICE_URL:-${SVC_SCHEME:-https}://interaction-service:9093/}
+      # W1 Vault: in-network address of the Vault server (infrastructure.yml).
+      # The container default (localhost:8200) would resolve to itself, so the
+      # URI is overridden here; the token is sourced from the gitignored .env.
+      VAULT_URI: http://vault:8200
+      VAULT_TOKEN: ${VAULT_TOKEN:-root}
+      # W2 Keycloak: in-network base URI of the IdP (infrastructure.yml). The
+      # gateway validates incoming JWTs against this realm's JWKS on prod /
+      # functional-equivalence; the benchmark profile gates the Keycloak filter
+      # off (app.keycloak.enabled=false), so this is prod/FE-only and
+      # benchmark-neutral. The container default (localhost:8090, the host-
+      # published port) is overridden here to the compose-network address.
+      KEYCLOAK_BASE_URI: http://keycloak:8080
+    volumes:
+      # W3 TLS: dev-CA keystore/truststore + CA, compose-mounted (never baked into
+      # the image). Prod / functional-equivalence run in compose with TLS on; the
+      # benchmark runs services on the host with TLS off, so this mount is
+      # prod/FE-only and benchmark-neutral.
+      - ./deployment/docker-compose/tls:/etc/tweebyte/tls:ro
+      - ${DIAG_OUT:-./testing-results/diag}:/diag
+    depends_on:
+      user-service:
+        condition: service_healthy
+      tweet-service:
+        condition: service_healthy
+      interaction-service:
+        condition: service_healthy
+      # W1 Vault: block boot until secret/tweebyte is seeded, so the fail-fast
+      # vault:// config import resolves on first try.
+      vault-init:
+        condition: service_completed_successfully
+      # W2 Keycloak: profile=full only (inactive in benchmark). Removed from
+      # depends_on because Docker Compose v5 treats profile-inactive services
+      # as undefined, making this a hard validation error in benchmark runs.
+      # Startup ordering is not needed in benchmark (gateway is off the path,
+      # app.keycloak.enabled=false).
+    # Readiness probe (out-of-band, benchmark-neutral): /actuator/health is open
+    # (no JWT). Tries plaintext then TLS (-k) — covers the benchmark profile (TLS off,
+    # http) and prod/FE (TLS on, https). On prod/FE the services run mTLS
+    # (client-auth=need) so the app-layer GET cannot complete without a client cert; the
+    # final /dev/tcp connect then confirms Boot has bound the connector. Either way the
+    # check only gates startup ordering, never the measured request path.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health || curl -fsSk https://localhost:8080/actuator/health || bash -c 'exec 3<>/dev/tcp/localhost/8080'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    mem_limit: 8g
+    restart: unless-stopped
+
+  user-service:
+    image: ${IMAGE_PREFIX:-tweebyte}-user-service-async:${TAG:-local}
+    build:
+      context: ./backend/async/user-service
+    ports:
+      - "9091:9091"
+    environment:
+      SERVER_PORT: "9091"
+      # Direct connection to user_service_db on every profile — the benchmark
+      # measured path stays direct (deployment/docker-compose/compose.sh keeps these compose defaults).
+      # The pg_user_proxy toxiproxy listener stays defined-and-idle for future
+      # fault-injection: export USER_DB_HOST=toxiproxy USER_DB_PORT=26432 to route
+      # JDBC traffic through it; the ${VAR:-default} below honours the override.
+      DB_HOST: ${USER_DB_HOST:-user-service-db}
+      DB_PORT: ${USER_DB_PORT:-5432}
+      TWEET_SERVICE_URL: ${TWEET_SERVICE_URL:-${SVC_SCHEME:-https}://tweet-service:9092/}
+      INTERACTION_SERVICE_URL: ${INTERACTION_SERVICE_URL:-${SVC_SCHEME:-https}://interaction-service:9093/}
+      SPRING_PROFILES_ACTIVE: ${STACK_PROFILE:-}
+      # W1 Vault: in-network URI override + token from .env (see gateway-service).
+      VAULT_URI: http://vault:8200
+      VAULT_TOKEN: ${VAULT_TOKEN:-root}
+      # W2 Keycloak: in-network base URI of the IdP. user-service delegates token
+      # issuance (login/register ROPC password grant) and user provisioning
+      # (Admin API via the tweebyte-app service account) here on prod /
+      # functional-equivalence; the benchmark profile gates it off, so this is
+      # prod/FE-only and benchmark-neutral.
+      KEYCLOAK_BASE_URI: http://keycloak:8080
+      # Single source of truth for JVM args: -Xmx4g plus a perf-neutral OOM heap
+      # dump (HeapDumpOnOutOfMemoryError -> /diag; fires only on OutOfMemoryError,
+      # zero steady-state cost). Still deliberately minimal for the comparison: no
+      # -Xms, no AlwaysPreTouch, no verbose logging, no virtual threads. Override via
+      # env var only as an emergency lever; the default lives HERE, not in a wrapper
+      # script.
+      JAVA_TOOL_OPTIONS: ${USER_JAVA_TOOL_OPTIONS:--Xmx4g -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/diag/}
+    volumes:
+      - ./deployment/docker-compose/tls:/etc/tweebyte/tls:ro
+      - ${DIAG_OUT:-./testing-results/diag}:/diag
+    depends_on:
+      user-service-db:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+      # W2 Keycloak: profile=full only (inactive in benchmark). Removed from
+      # depends_on — see gateway-service note above; same reasoning applies.
+    # Readiness probe (see gateway-service): out-of-band, benchmark-neutral; gates only
+    # startup ordering so the gateway's service_healthy dependency waits for Boot to bind
+    # the connector instead of racing a not-yet-listening service.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9091/actuator/health || curl -fsSk https://localhost:9091/actuator/health || bash -c 'exec 3<>/dev/tcp/localhost/9091'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    # Shared mem_limit rationale for every app service in this stack: the 8g
+    # cap accommodates the -Xmx4g heap plus native memory (metaspace, code
+    # cache, Netty/Tomcat threads, GC structures). With the benchmark JVM
+    # flags (no -Xms, no AlwaysPreTouch) the container starts well below 1g and
+    # grows on demand toward the cap.
+    mem_limit: 8g
+    restart: unless-stopped
+
+  tweet-service:
+    image: ${IMAGE_PREFIX:-tweebyte}-tweet-service-async:${TAG:-local}
+    build:
+      context: ./backend/async/tweet-service
+    ports:
+      - "9092:9092"
+    environment:
+      SERVER_PORT: "9092"
+      # Direct to tweet_service_db on the benchmark measured path; the
+      # pg_tweet_proxy listener (toxiproxy:26433) stays defined-and-idle for
+      # future fault-injection. See user-service rationale above.
+      DB_HOST: ${TWEET_DB_HOST:-tweet-service-db}
+      DB_PORT: ${TWEET_DB_PORT:-5432}
+      CACHE_HOST: ${TWEET_CACHE_HOST:-redis}
+      # W3 TLS: prod / functional-equivalence connect to Redis' TLS port (6380) — base
+      # config sets spring.data.redis.ssl.enabled=true. The benchmark overlay turns SSL off
+      # and deployment/docker-compose/compose.sh sets TWEET_CACHE_PORT=6379 (the plaintext port), so the
+      # measured path is byte-for-byte unchanged.
+      CACHE_PORT: ${TWEET_CACHE_PORT:-6380}
+      USER_SERVICE_URL: ${USER_SERVICE_URL:-${SVC_SCHEME:-https}://user-service:9091/}
+      INTERACTION_SERVICE_URL: ${INTERACTION_SERVICE_URL:-${SVC_SCHEME:-https}://interaction-service:9093/}
+      SPRING_PROFILES_ACTIVE: ${STACK_PROFILE:-}
+      # W1 Vault: in-network URI override + token from .env (see gateway-service).
+      VAULT_URI: http://vault:8200
+      VAULT_TOKEN: ${VAULT_TOKEN:-root}
+      # APP_CONCURRENCY_TWEET_* knobs (custom-pool / pool-size / queue-capacity /
+      # reject-policy) moved into backend/async/tweet-service/.../application-benchmark.properties
+      # as the single source of truth for benchmark behavior.
+      AI_BACKEND: ${AI_BACKEND:-mock}
+      # Live-LLM connection knobs. For the §5.13 realism subset, set
+      # LIVE_LLM_BASE_URL=http://host.docker.internal:8081 to point at
+      # mlx_lm.server.
+      LIVE_LLM_BASE_URL: ${LIVE_LLM_BASE_URL:-http://host.docker.internal:1234}
+      LIVE_LLM_MODEL: ${LIVE_LLM_MODEL:-qwen3.5-4b-mlx}
+      LIVE_LLM_TEMPERATURE: ${LIVE_LLM_TEMPERATURE:-0.7}
+      LIVE_LLM_MAX_TOKENS: ${LIVE_LLM_MAX_TOKENS:-200}
+      AI_MOCK_TTFT_MEAN_MS: ${AI_MOCK_TTFT_MEAN_MS:-250}
+      AI_MOCK_TTFT_LOG_SIGMA: ${AI_MOCK_TTFT_LOG_SIGMA:-0.4}
+      AI_MOCK_ITL_MEAN_MS: ${AI_MOCK_ITL_MEAN_MS:-40}
+      AI_MOCK_ITL_GAMMA_SHAPE: ${AI_MOCK_ITL_GAMMA_SHAPE:-2.5}
+      AI_MOCK_ITL_P_BURST: ${AI_MOCK_ITL_P_BURST:-0.0}
+      AI_MOCK_TOKENS_PER_RESPONSE: ${AI_MOCK_TOKENS_PER_RESPONSE:-150}
+      # Container-side path the JVM reads. Defaults to /app/calibration/calibration.json
+      # so the bind mount below makes the host-published file visible without forcing
+      # the operator to compute container paths. To disable calibration entirely,
+      # explicitly set AI_MOCK_CALIBRATION_JSON= (empty).
+      AI_MOCK_CALIBRATION_JSON: ${AI_MOCK_CALIBRATION_JSON:-/app/calibration/calibration.json}
+      JAVA_TOOL_OPTIONS: ${TWEET_JAVA_TOOL_OPTIONS:--Xmx4g -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/diag/}
+    volumes:
+      # Host-side calibration directory bind-mounted read-only into the container.
+      # Without this, AI_MOCK_CALIBRATION_JSON paths produced by the calibration
+      # CLI (which lives on the host filesystem) would silently miss inside the
+      # container and MockCalibration.loadOrDefault() would fall back to the
+      # 250ms/40ms defaults — turning a "calibrated mock" sweep into a default
+      # mock sweep with only a boot WARN to indicate it. The default host path
+      # below points at testing/performance/k6/workloads/ai-stream-summarize/calibration/ in the repo (where the calibration
+      # CLI emits its JSON); override AI_MOCK_CALIBRATION_HOST_DIR to redirect.
+      - ${AI_MOCK_CALIBRATION_HOST_DIR:-./testing/performance/k6/workloads/ai-stream-summarize/calibration}:/app/calibration:ro
+      - ./deployment/docker-compose/tls:/etc/tweebyte/tls:ro
+      - ${DIAG_OUT:-./testing-results/diag}:/diag
+    depends_on:
+      tweet-service-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      interaction-service:
+        condition: service_started
+      vault-init:
+        condition: service_completed_successfully
+    # Readiness probe (see gateway-service): out-of-band, benchmark-neutral.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9092/actuator/health || curl -fsSk https://localhost:9092/actuator/health || bash -c 'exec 3<>/dev/tcp/localhost/9092'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    mem_limit: 8g
+    restart: unless-stopped
+
+  interaction-service:
+    image: ${IMAGE_PREFIX:-tweebyte}-interaction-service-async:${TAG:-local}
+    build:
+      context: ./backend/async/interaction-service
+    ports:
+      - "9093:9093"
+    environment:
+      SERVER_PORT: "9093"
+      # Direct to interaction_service_db on the benchmark measured path; the
+      # pg_interaction_proxy listener (toxiproxy:26434) stays defined-and-idle for
+      # future fault-injection. See user-service rationale above.
+      DB_HOST: ${INTERACTION_DB_HOST:-interaction-service-db}
+      DB_PORT: ${INTERACTION_DB_PORT:-5432}
+      CACHE_HOST: ${INTERACTION_CACHE_HOST:-redis}
+      # W3 TLS: default to Redis' TLS port (6380) for prod / functional-equivalence
+      # (redis.ssl.enabled=true in base). The benchmark profile pins
+      # INTERACTION_CACHE_HOST=redis / INTERACTION_CACHE_PORT=6379 (direct plaintext)
+      # via run.sh — that is the measured path. The toxiproxy Redis proxy (26379)
+      # stays defined-and-idle for future fault-injection: export
+      # INTERACTION_CACHE_HOST=toxiproxy INTERACTION_CACHE_PORT=26379 to route through it.
+      CACHE_PORT: ${INTERACTION_CACHE_PORT:-6380}
+      USER_SERVICE_URL: ${USER_SERVICE_URL:-${SVC_SCHEME:-https}://user-service:9091/}
+      TWEET_SERVICE_URL: ${TWEET_SERVICE_URL:-${SVC_SCHEME:-https}://tweet-service:9092/}
+      SPRING_PROFILES_ACTIVE: ${STACK_PROFILE:-}
+      # W1 Vault: in-network URI override + token from .env (see gateway-service).
+      VAULT_URI: http://vault:8200
+      VAULT_TOKEN: ${VAULT_TOKEN:-root}
+      # APP_CONCURRENCY_INTERACTION_* knobs (pool-size / queue-capacity) moved
+      # into backend/async/interaction-service/.../application-benchmark.properties as
+      # the single source of truth for benchmark behavior.
+      JAVA_TOOL_OPTIONS: ${INTERACTION_JAVA_TOOL_OPTIONS:--Xmx4g -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/diag/}
+    volumes:
+      - ./deployment/docker-compose/tls:/etc/tweebyte/tls:ro
+      - ${DIAG_OUT:-./testing-results/diag}:/diag
+    depends_on:
+      interaction-service-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+    # Readiness probe (see gateway-service): out-of-band, benchmark-neutral.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9093/actuator/health || curl -fsSk https://localhost:9093/actuator/health || bash -c 'exec 3<>/dev/tcp/localhost/9093'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    mem_limit: 8g
+    restart: unless-stopped

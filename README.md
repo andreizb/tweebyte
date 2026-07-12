@@ -1,69 +1,54 @@
 # Tweebyte
 
-> **AI coding agents — read [`AGENTS.md`](AGENTS.md) first.** It is the single canonical guide for this repository (commands, conventions, pinned versions, benchmark scope, JVM-flag overrides). Do **not** create agent-specific guidance files; `AGENTS.md` applies universally.
+Tweebyte is a Twitter-like microblogging system implemented twice behind the same HTTP API: a blocking Spring Web/JPA stack and a non-blocking WebFlux/R2DBC stack. The repository exists to keep those implementations functionally equivalent and compare them under identical workloads.
 
-Tweebyte is a Twitter-like microblogging platform built as a Java microservices system, with two parallel implementations of the same API surface — an `async/` stack (Spring Web + Spring Data JPA, blocking) and a `reactive/` stack (Spring WebFlux + R2DBC, non-blocking). The two stacks are deliberately matched feature-for-feature so the runtime behaviour of each concurrency model can be compared under identical workloads, identical input data, and identical observability.
+## Repository map
 
-## Architecture
+| Area | Purpose | Entry point |
+|---|---|---|
+| `backend/` | Async and reactive Java microservices | [`backend/README.md`](backend/README.md) |
+| `frontend/` | Angular client, mock backend, and browser tests | [`frontend/README.md`](frontend/README.md) |
+| `deployment/` | Docker, local-process, and native-local runtime wiring | [`deployment/README.md`](deployment/README.md) |
+| `testing/` | Unit coverage, functional equivalence, and benchmarks | [`testing/README.md`](testing/README.md) |
 
-Both stacks ship the same four microservices on the same ports, against per-service Postgres databases plus a shared Redis cache.
-
-| Service | HTTP port (container/host) | Async stack | Reactive stack |
-|---|---:|---|---|
-| **gateway-service** | 8080 | Zuul (Spring Boot 2.7.18, Java 11 — pinned) | Spring Cloud Gateway (Spring Boot 3.3.2) |
-| **user-service** | 9091 | Spring Web + JPA, JWT auth | Spring WebFlux + R2DBC, JWT auth |
-| **tweet-service** | 9092 | Spring Web + JPA + Spring AI 1.0.1, Redis cache | Spring WebFlux + R2DBC + Spring AI 1.0.1, Redis cache |
-| **interaction-service** | 9093 | Spring Web + JPA, JDK `HttpClient`, Redis cache | Spring WebFlux + R2DBC, `WebClient`, Resilience4j, Redis cache |
-
-Service HTTP ports are mapped 1:1 container/host. Redis is shared by tweet-service (followed-id feed fallback cache) and interaction-service (following/followed, recommendations, popular-users, popular-hashtags, user-summary).
-
-Inter-service calls are wrapped behind per-service client classes (`UserClient`, `InteractionClient`, `TweetClient`). The async stack uses a bounded `ThreadPoolExecutor` (sized via `APP_CONCURRENCY_TWEET_POOL_SIZE`, default 200, swept up to 1600 in benchmarks); the reactive stack uses Netty event loops. JWT signing keys are keystore-backed; MapStruct handles entity↔DTO mapping.
-
-`AGENTS.md` carries the full per-service layout, env-var matrix, and the pinned-version table (Spring Boot, Spring AI, Java, Docker, k6, model checkpoint SHA-256).
-
-## What's in the repo
-
-- **Both microservice stacks** under `async/` and `reactive/` — each contains its own gateway + three services + per-service Maven pom + Dockerfile.
-- **Compose profiles** (`infrastructure/compose/`) — `prod` for normal operation, `benchmark` for performance runs (toxiproxy in front of Redis, GC logging, configurable executor sizing, calibrated mock LLM bind-mount).
-- **Functional + integration test surface** (Spring `@Test`, MockMvc/WebTestClient, MapStruct contract tests) — unit tests run via `mvn test` per service.
-- **Benchmark workloads** (`testing/performance/k6/workloads/`) — open-loop k6 scripts covering:
-  - microblogging CRUD scenarios
-  - Redis-backed cache reads (`following-cache`)
-  - blocking-I/O file download (`file-download`)
-  - CPU-bound image processing (`image-upload`)
-  - Spring AI streaming (`ai-streaming`) with three sub-workloads:
-    - `W0` — non-AI SSE token-emitter baseline
-    - `W1` — pure AI chat streaming
-    - `W2` — AI chat streaming with a mid-stream blocking tool call
-- **Calibration tooling** (`testing/calibration/`, Maven + picocli) — collects real-LLM TTFT/ITL samples from any OpenAI-compatible endpoint, fits five distribution families via Apache Commons Math (log-normal, gamma, Weibull, shifted log-normal, 2-component log-normal mixture), runs Kolmogorov-Smirnov mock-vs-real validation. Output: `testing/calibration/calibration.json` (1973 TTFT + ~168k ITL samples + fitted parameters; checked in, 1.7 MB, reproducibility-critical).
-- **Analysis pipeline** (`testing/analysis/`, Maven + picocli + Apache Commons Math + XChart) — ingests k6 result directories into a flat CSV, computes per-cell bootstrap CIs on per-run p99 + Mann-Whitney U paired tests for async-vs-reactive, emits PNG figures and plot-ready CSVs.
-- **Live-LLM realism wrapper** (`infrastructure/realism-backend.sh`) — host-side lifecycle (`up`/`down`/`status`) for Apple `mlx_lm.server` running locally on macOS Metal, used for the AI-streaming workload's live-backend integration cells.
+The system design lives in [`ARCHITECTURE.md`](ARCHITECTURE.md). Recorded verification and benchmark numbers live only in [`testing/RESULTS.md`](testing/RESULTS.md).
 
 ## Quick start
 
-Prerequisites: JDK 21, Docker Desktop, Maven 3.9+, k6 ≥ 1.7 (only for benchmark workloads).
+Prerequisites for the full stack are JDK 21, Maven 3.9+, and Docker Desktop. k6 and JMeter are needed only for their respective benchmark workloads.
 
 ```bash
-# Bring up the full async stack on the prod profile.
+# Start either complete stack with the normal runtime configuration.
 ./run.sh runtime up async prod
-
-# Or the reactive equivalent.
 ./run.sh runtime up reactive prod
+
+# Include the Angular frontend.
+WITH_FRONTEND=1 ./run.sh runtime up async prod
 
 # Stop without deleting volumes.
 ./run.sh runtime down async prod
 
-# Run a service's unit tests.
-cd async/tweet-service && mvn test
+# Run one service's tests.
+cd backend/async/tweet-service && mvn test
 ```
 
-For the `benchmark` profile, the calibration workflow, the AI-streaming workload (`./run.sh bench k6 --workload ai-streaming`), the live-LLM realism subset, JVM heap overrides, and the full subcommand tree, see [`AGENTS.md`](AGENTS.md).
+Run `./run.sh --help` for the current command tree. Deployment profiles and local topologies are documented in [`deployment/README.md`](deployment/README.md).
 
-## Where the canonical numbers live
+## Documentation responsibilities
 
-[`testing/RESULTS.md`](testing/RESULTS.md) is the single source of truth for every measurement and methodology decision in the repository — per-cell tables, bootstrap CIs, Mann-Whitney U verdicts, distribution fits, threats to validity, reproducibility recipes, and a maintenance checklist. Read this file when interpreting any benchmark output or when adding new cells.
+| Document | Owns |
+|---|---|
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | System components, data flow, security design, profiles, and invariants |
+| [`SECURITY.md`](SECURITY.md) | Supported line, security boundary, and private vulnerability reporting |
+| [`AGENTS.md`](AGENTS.md) | Coding-agent rules, implementation guardrails, benchmark operating knowledge, and pinned versions |
+| [`backend/README.md`](backend/README.md) | Backend layout and service-level development commands |
+| [`frontend/README.md`](frontend/README.md) | Frontend structure, runtime configuration, and development commands |
+| [`deployment/README.md`](deployment/README.md) | Runtime commands, compose overlays, profiles, ports, and topologies |
+| [`testing/README.md`](testing/README.md) | Test surfaces and output locations |
+| [`testing/performance/README.md`](testing/performance/README.md) | Benchmark engines, profiles, methodology rules, and result cleanup |
+| [`testing/RESULTS.md`](testing/RESULTS.md) | Current test status and complete retained measurement tables |
 
-`testing-results/` is the gitignored output root for k6 / JMeter runs and figures. The on-disk `testing/calibration/calibration.json` is version-controlled because the fitted parameters drive the calibrated mock used by the AI-streaming workload.
+AI coding agents must read [`AGENTS.md`](AGENTS.md) before changing the repository. It is the only agent-specific instruction file.
 
 ## License
 

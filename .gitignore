@@ -2,20 +2,46 @@
 # Reference: https://intellij-support.jetbrains.com/hc/en-us/articles/206544839
 .idea
 .vscode/
-.mvn
+# Maven wrapper: track the committed version pin, ignore any other .mvn content (at any depth)
+**/.mvn/**
+!**/.mvn/wrapper/
+!**/.mvn/wrapper/maven-wrapper.properties
 target
 .DS_Store
 __pycache__/
 *.pyc
 **/.DS_Store
-/results/
-/test-results/
 /testing-results/
-/testing/performance/k6/payload/
-/testing/performance/jmeter/payload/
+/testing/performance/jmeter/workloads/*/payload/
+/testing/performance/k6/workloads/*/payload/
+# async-profiler binaries pulled by tools/fetch-async-profiler.sh (the script is tracked)
+/testing/performance/tools/async-profiler/
 
 # JMeter / k6 / generic log files at any depth
 *.log
+
+# JVM diagnostic artifacts — heap dumps (OOM / jmap) and Flight Recorder recordings can
+# be 1 GB+, are produced ad-hoc during profiling, and must never be committed.
+*.hprof
+*.jfr
+
+# W1 Vault: real secrets live in a gitignored .env (seeded into Vault at boot);
+# only .env.example — the documented defaults — is committed.
+.env
+!.env.example
+
+# W3 TLS: dev-CA cert/key material is generated on the host by gen-certs.sh and
+# is never committed (private keys, exactly like .env). Only the generator is
+# tracked; re-run it per machine.
+deployment/docker-compose/tls/*.crt
+deployment/docker-compose/tls/*.key
+deployment/docker-compose/tls/*.csr
+deployment/docker-compose/tls/*.p12
+deployment/docker-compose/tls/*.srl
+!deployment/docker-compose/tls/gen-certs.sh
+
+# Local agent CLI scratch dir — never committed.
+.antigravitycli/
 
 # User-specific stuff
 .idea/**/workspace.xml

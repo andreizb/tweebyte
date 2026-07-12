@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Structured logging at the edge. In prod / functional-equivalence (empty active profile)
+  the gateway emits JSON with trace correlation (traceId/spanId via MDC when tracing is on)
+  and the security-audit MDC fields (event/outcome/method/path/reason) the JWT filter sets
+  on auth failures and 403 ownership denials. The benchmark profile drops the root level to
+  WARN; the gateway sits off the benchmark path, so this is bench-neutral either way.
+-->
+<configuration>
+	<springProperty scope="context" name="appName" source="spring.application.name"/>
+
+	<springProfile name="benchmark">
+		<appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+			<encoder>
+				<pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{0} - %msg%n</pattern>
+			</encoder>
+		</appender>
+		<root level="WARN">
+			<appender-ref ref="CONSOLE"/>
+		</root>
+	</springProfile>
+
+	<springProfile name="!benchmark">
+		<appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+			<encoder class="net.logstash.logback.encoder.LogstashEncoder">
+				<includeMdcKeyName>traceId</includeMdcKeyName>
+				<includeMdcKeyName>spanId</includeMdcKeyName>
+				<includeMdcKeyName>event</includeMdcKeyName>
+				<includeMdcKeyName>outcome</includeMdcKeyName>
+				<includeMdcKeyName>method</includeMdcKeyName>
+				<includeMdcKeyName>path</includeMdcKeyName>
+				<includeMdcKeyName>reason</includeMdcKeyName>
+				<customFields>{"service":"${appName}"}</customFields>
+			</encoder>
+		</appender>
+		<root level="INFO">
+			<appender-ref ref="JSON"/>
+		</root>
+	</springProfile>
+</configuration>
