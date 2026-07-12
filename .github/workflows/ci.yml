@@ -237,7 +237,7 @@ jobs:
           category: owasp-dependency-check
 
       - name: Generate CycloneDX SBOM (Syft)
-        uses: anchore/sbom-action@v0.17.7
+        uses: anchore/sbom-action@v0.24.0
         with:
           path: .
           format: cyclonedx-json
