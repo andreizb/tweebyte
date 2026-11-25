@@ -97,9 +97,11 @@ try:
         rows = list(csv.DictReader(handle))
     expected = {int(c) for c in concurrencies.split()}
     actual = {int(row['concurrency']) for row in rows}
-    assert expected and actual == expected and len(rows) == len(expected)
-    assert all(int(row['n']) == int(runs) and int(row['total_count']) > 0 for row in rows)
-except (OSError, ValueError, KeyError, TypeError, AssertionError, csv.Error):
+    if not expected or actual != expected or len(rows) != len(expected):
+        raise ValueError('missing or unexpected cells')
+    if not all(int(row['n']) == int(runs) and int(row['total_count']) > 0 for row in rows):
+        raise ValueError('incomplete cell aggregation')
+except (OSError, ValueError, KeyError, TypeError, csv.Error):
     sys.exit(1)
 PY
     then

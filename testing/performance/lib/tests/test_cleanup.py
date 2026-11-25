@@ -25,9 +25,12 @@ class CleanupTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def run_driver(self, body='cleanup_result_complete', keep_raw='0'):
+    def run_driver(self, body='cleanup_result_complete', keep_raw='0', *, optimize=False):
         env = dict(os.environ, KEEP_RAW=keep_raw, TMPDIR=str(self.root))
         env.pop('BENCH_SWEEP_STATE', None)
+        env.pop('PYTHONOPTIMIZE', None)
+        if optimize:
+            env['PYTHONOPTIMIZE'] = '1'
         return subprocess.run(
             ['/bin/bash', '-c', 'set -euo pipefail\nsource "$1"\n'
              'cleanup_result_init "$2" jmeter 1 "10"\n' + body,
@@ -67,6 +70,14 @@ class CleanupTests(unittest.TestCase):
                 result = self.run_driver()
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertTrue(self.raw.exists())
+
+    @unittest.skipUnless(shutil.which('lsof'), 'safe automatic pruning requires lsof')
+    def test_optimized_python_preserves_incomplete_aggregation(self):
+        (self.result / 'cells.csv').write_text('concurrency,n,total_count\n')
+        result = self.run_driver(optimize=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(self.raw.exists(), result.stderr)
+        self.assertIn('aggregation incomplete', result.stderr)
 
     def test_active_registered_writer_prevents_pruning(self):
         writer = subprocess.Popen(['sleep', '30'])
