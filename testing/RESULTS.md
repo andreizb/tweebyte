@@ -41,11 +41,7 @@ All 8 modules clear the unit-only line + branch ≥ 0.90 coverage gate. The per-
 
 **FE status:** behavior, unit coverage, Cucumber coverage, and test-count parity are green as of 2026-07-05: both Cucumber stack runs passed 400/400 scenarios, all 8 modules clear both coverage gates, and every service pair is within the 5 % `@Test` count parity threshold.
 
-**Maintenance rule (do this every PR that touches test files):**
-1. Re-run the count: `for s in backend/async/{gateway,user,tweet,interaction}-service backend/reactive/{gateway,user,tweet,interaction}-service; do printf '%-40s %5d\n' "$s" "$(grep -rEoh '@Test\b' "$s/src/test" 2>/dev/null | wc -l)"; done`
-2. Re-run the gate: `for s in backend/async/{gateway,user,tweet,interaction}-service backend/reactive/{gateway,user,tweet,interaction}-service; do (cd "$s" && mvn -B -DskipITs verify >/dev/null); done && ./testing/functional-equivalence/coverage-gate.sh unit`
-3. Update the table above + the per-stack subtotals + the total.
-4. If async/reactive deviate by more than 5 % on any single service, OR any module drops below 0.90 line or 0.90 branch, the change must restore both before merge — that's the acceptance shape above.
+**Maintenance:** choose checks using [`README.md`](README.md#choose-verification-for-the-change). When `@Test` methods are added or removed, recount the affected service pair and update its rows, stack subtotals, and total. Count only source tests, for example `rg -o '@Test\b' backend/async/user-service/src/test | wc -l`. When code or tests change, verify the affected modules' line and branch coverage; full FE sign-off still requires all eight modules and both stacks. Restore any affected service pair exceeding 5% count divergence or module falling below 0.90 coverage before merge.
 
 ### 1.2 Behavior-Driven tests — Cucumber
 
@@ -73,11 +69,11 @@ find testing/functional-equivalence/src/test/resources/features -name '*.feature
 - Coverage exclusions (DTO/entity) are configured per pom.xml; service modules carry `≥ 0.90` line + branch via unit tests alone.
 - Cucumber-mode coverage uses the FE black-box boundary denominator and is enforced at ≥ 0.90 line + branch. Fresh measurements on 2026-07-05: async gateway 0.9706/0.9194, async user 1.0000/1.0000, async tweet 1.0000/1.0000, async interaction 1.0000/1.0000; reactive gateway 0.9913/0.9091, reactive user 1.0000/1.0000, reactive tweet 1.0000/1.0000, reactive interaction 1.0000/1.0000.
 
-The FE suite lives under `testing/functional-equivalence/`. 400 scenarios pass on both stacks. The suite covers auth flows, tweet CRUD, follow/like/retweet/reply chains, the Redis-backed caching surface, the CPU-bound media surface, gateway routing/JWT, cross-service end-to-end chains, AND the AI streaming surface (W0/W1/W2). Cucumber connects to gateway-service over HTTP via the `functional-equivalence` compose profile, so the same `.feature` files exercise both stacks and equivalence is observable per scenario, not just through test-count parity.
+The FE suite lives under `testing/functional-equivalence/`. 400 scenarios pass on both stacks. The suite covers auth flows, tweet CRUD, follow/like/retweet/reply chains, the Redis-backed caching surface, the CPU-bound media surface, gateway routing/JWT, cross-service end-to-end chains, AND the AI streaming surface (W0/W1/W2). Cucumber connects to gateway-service over HTTPS via the `functional-equivalence` compose profile, so the same `.feature` files exercise both stacks and equivalence is observable per scenario, not just through test-count parity.
 
 Forward maintenance:
 1. New scenarios go under `testing/functional-equivalence/src/test/resources/features/<service>/`. Step phrasing follows the existing `Auth/User/Tweet/Interaction Steps.java` catalogue — extend if an idiom isn't represented yet.
-2. Any FE divergence (a scenario passes on one stack but not the other) must be fixed in production code; intentional behavioural differences must be documented in the commit message with severity, repro, and rationale.
+2. Investigate any FE divergence across service code, shared test steps, fixtures, and topology; fix the demonstrated root cause while preserving the shared API contract. Intentional behavioral differences require a documented contract decision with severity, repro, and rationale; do not hide a service defect with stack-specific test expectations.
 3. Re-run the cucumber-mode coverage gate (`./testing/functional-equivalence/coverage-gate.sh cucumber <stack>`) when the suite expands; keep line + branch ≥ 0.90 on every service module.
 
 ### 1.3 AI streaming tests
@@ -488,7 +484,27 @@ The AI measurements use `native-local` with host PostgreSQL, Redis, Vault, appli
 
 k6 ramps to a constant open-loop arrival rate with a 60-second warmup and a 180-second measured interval. `AI_PREALLOC_VUS=15000`, `AI_MAX_VUS=30000`, host `kern.ipc.somaxconn=4096`, Tomcat `accept-count=4096`, and Tomcat `max-connections=16384`. Effective backend, token, and executor configuration is asserted through Prometheus before each cell on both stacks.
 
-### 4.1 Primary result
+### 4.1 Reference-model selection and mock calibration
+
+The calibrated mock reproduces the output-side timing of a reference model selected through a same-runtime probe on the benchmark host: Qwen3.5-4B-MLX-4bit and Gemma 4 E4B OptiQ-4bit were both served through `mlx_lm.server` with the same prompt and token cap, 100 samples each.
+
+| Candidate | n | TTFT mean ms | TTFT p99 ms | ITL mean ms | RSS GB |
+|---|---:|---:|---:|---:|---:|
+| Qwen3.5-4B-MLX-4bit | 100 | 149.2 | 176.3 | 12.36 | 2.6 |
+| Gemma 4 E4B OptiQ-4bit | 100 | 192.0 | 212.9 | 17.73 | 6.6 |
+
+Qwen3.5-4B-MLX-4bit was selected: lower TTFT, lower ITL, and substantially lower resident memory.
+
+After selection, the `qwen-3.5-4b-mlxlm-v2` calibration was regenerated from a larger live sample against the selected model: 500 TTFT and 54,000 ITL observations (`testing/performance/k6/workloads/ai-stream-summarize/calibration/calibration.json`, collected 2026-06-13). Log-normal (TTFT) and gamma (ITL) are the best-fitting single-mode families by AIC/BIC among the candidates tried; the runtime trace shows no sub-millisecond token coalescing, so the burst probability is 0 and the marginal ITL collapses to the pure gamma fit.
+
+| Quantity | n | Sample mean ms | Sample p99 ms | Fitted family | Parameters |
+|---|---:|---:|---:|---|---|
+| TTFT | 500 | 142.6 | 176.4 | log-normal | mu = 4.9568, sigma = 0.0751 |
+| ITL | 54,000 | 12.36 | 16.2 | gamma | shape = 248.66, scale = 0.0497 |
+
+The mock draws per-request TTFT and ITL from thread-local instances of the fitted distributions. W1/W2 pin 150 output tokens, for an expected residency of about 2 s. The sample mean and p99 columns are empirical statistics of the calibration sample, not values implied by the fitted parameters; quote them as sample statistics.
+
+### 4.2 Primary result
 
 The 18 target rates are:
 
@@ -505,120 +521,132 @@ The grid covers W0 non-AI streaming, W1 chat, and W2 chat with a tool call on bo
 
 Reactive p99 remains near 1.7–2.0 seconds across the grid while CPU and heap rise with offered work. Beyond the async residency boundary, p99 and application errors rise sharply; the zero-error knee rows above isolate the latency transition from rejection behavior.
 
-### 4.2 Full 18-point grid
+### 4.3 Full 18-point grid
 
-| Workload | Target rps | Stack | n | Delivered rps | p50 ms | p95 ms | p99 ms | Errors | Dropped | CPU avg % | Heap used avg MB |
-| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| W0 non-AI stream | 10 | async | 1 | 10.0 | 1,937 | 2,177 | 2,203 | 0.00% | 0.00% | 1.7 | 136.7 |
-| W0 non-AI stream | 10 | reactive | 1 | 10.0 | 2,041 | 2,070 | 2,096 | 0.00% | 0.00% | 0.8 | 107.7 |
-| W0 non-AI stream | 25 | async | 1 | 25.0 | 2,086 | 2,133 | 2,154 | 0.00% | 0.00% | 1.6 | 147.2 |
-| W0 non-AI stream | 25 | reactive | 1 | 25.0 | 1,957 | 1,979 | 1,991 | 0.00% | 0.00% | 1.3 | 103.3 |
-| W0 non-AI stream | 50 | async | 1 | 50.0 | 2,039 | 2,082 | 2,101 | 0.00% | 0.00% | 2.8 | 161.8 |
-| W0 non-AI stream | 50 | reactive | 1 | 50.0 | 1,880 | 1,900 | 1,917 | 0.00% | 0.00% | 2.3 | 110.7 |
-| W0 non-AI stream | 75 | async | 1 | 75.0 | 1,981 | 2,020 | 2,040 | 0.00% | 0.00% | 5.0 | 202.8 |
-| W0 non-AI stream | 75 | reactive | 1 | 75.0 | 1,886 | 1,919 | 1,933 | 0.00% | 0.00% | 3.0 | 117.9 |
-| W0 non-AI stream | 100 | async | 1 | 100.0 | 1,944 | 1,983 | 2,003 | 0.00% | 0.00% | 6.2 | 251.9 |
-| W0 non-AI stream | 100 | reactive | 1 | 100.0 | 1,810 | 1,833 | 1,848 | 0.00% | 0.00% | 3.7 | 118.4 |
-| W0 non-AI stream | 125 | async | 1 | 125.0 | 1,930 | 1,968 | 1,988 | 0.00% | 0.00% | 7.2 | 295.9 |
-| W0 non-AI stream | 125 | reactive | 1 | 125.0 | 1,796 | 1,822 | 1,856 | 0.00% | 0.00% | 4.2 | 119.8 |
-| W0 non-AI stream | 150 | async | 1 | 150.0 | 1,920 | 1,955 | 1,973 | 0.00% | 0.00% | 9.2 | 336.2 |
-| W0 non-AI stream | 150 | reactive | 1 | 150.0 | 1,792 | 1,816 | 1,833 | 0.00% | 0.00% | 5.0 | 122.2 |
-| W0 non-AI stream | 175 | async | 1 | 175.0 | 1,889 | 1,932 | 1,955 | 0.00% | 0.00% | 9.6 | 373.6 |
-| W0 non-AI stream | 175 | reactive | 1 | 175.0 | 1,751 | 1,769 | 1,783 | 0.00% | 0.00% | 5.4 | 121.8 |
-| W0 non-AI stream | 190 | async | 1 | 190.0 | 1,908 | 1,950 | 1,971 | 0.00% | 0.00% | 11.1 | 397.1 |
-| W0 non-AI stream | 190 | reactive | 1 | 190.0 | 1,748 | 1,763 | 1,774 | 0.00% | 0.00% | 4.7 | 121.7 |
-| W0 non-AI stream | 200 | async | 1 | 200.0 | 1,898 | 1,937 | 1,957 | 0.00% | 0.00% | 11.7 | 418.6 |
-| W0 non-AI stream | 200 | reactive | 1 | 200.0 | 1,750 | 1,764 | 1,775 | 0.00% | 0.00% | 5.1 | 122.9 |
-| W0 non-AI stream | 210 | async | 5 | 210.0 | 1,910 | 1,977 | 2,008 | 0.00% | 0.00% | 12.5 | 434.4 |
-| W0 non-AI stream | 210 | reactive | 5 | 210.0 | 1,751 | 1,766 | 1,778 | 0.00% | 0.00% | 5.2 | 121.7 |
-| W0 non-AI stream | 225 | async | 5 | 225.0 | 7,675 | 14,472 | 15,112 | 0.00% | 0.00% | 13.1 | 770.7 |
-| W0 non-AI stream | 225 | reactive | 5 | 225.0 | 1,750 | 1,764 | 1,775 | 0.00% | 0.00% | 5.5 | 124.7 |
-| W0 non-AI stream | 250 | async | 1 | 250.0 | 16,942 | 21,093 | 21,137 | 6.80% | 0.00% | 13.4 | 992.1 |
-| W0 non-AI stream | 250 | reactive | 1 | 250.0 | 1,740 | 1,754 | 1,765 | 0.00% | 0.00% | 5.7 | 126.2 |
-| W0 non-AI stream | 300 | async | 1 | 300.0 | 20,774 | 20,985 | 21,119 | 21.90% | 0.00% | 14.0 | 1,159.9 |
-| W0 non-AI stream | 300 | reactive | 1 | 300.0 | 1,728 | 1,740 | 1,750 | 0.00% | 0.00% | 6.4 | 134.8 |
-| W0 non-AI stream | 350 | async | 1 | 350.0 | 20,416 | 20,790 | 20,996 | 32.00% | 0.00% | 13.6 | 1,224.7 |
-| W0 non-AI stream | 350 | reactive | 1 | 350.0 | 1,716 | 1,727 | 1,738 | 0.00% | 0.00% | 7.3 | 141.9 |
-| W0 non-AI stream | 400 | async | 1 | 400.0 | 20,482 | 20,763 | 20,996 | 40.60% | 0.00% | 13.5 | 1,233.7 |
-| W0 non-AI stream | 400 | reactive | 1 | 400.0 | 1,709 | 1,720 | 1,729 | 0.00% | 0.00% | 7.9 | 153.7 |
-| W0 non-AI stream | 500 | async | 1 | 500.0 | 20,275 | 20,589 | 20,875 | 52.00% | 0.00% | 13.2 | 1,380.3 |
-| W0 non-AI stream | 500 | reactive | 1 | 500.0 | 1,704 | 1,715 | 1,723 | 0.00% | 0.00% | 10.2 | 167.8 |
-| W0 non-AI stream | 650 | async | 1 | 650.0 | 20,074 | 20,542 | 20,880 | 62.70% | 0.00% | 13.2 | 1,578.1 |
-| W0 non-AI stream | 650 | reactive | 1 | 650.0 | 1,691 | 1,700 | 1,708 | 0.00% | 0.00% | 13.4 | 182.3 |
-| W1 chat | 10 | async | 1 | 10.0 | 2,287 | 2,329 | 2,358 | 0.00% | 0.00% | 2.6 | 152.9 |
-| W1 chat | 10 | reactive | 1 | 10.0 | 2,283 | 2,323 | 2,360 | 0.00% | 0.00% | 1.0 | 86.1 |
-| W1 chat | 25 | async | 1 | 25.0 | 2,156 | 2,188 | 2,205 | 0.00% | 0.00% | 6.9 | 161.5 |
-| W1 chat | 25 | reactive | 1 | 25.0 | 2,137 | 2,166 | 2,188 | 0.00% | 0.00% | 1.7 | 86.9 |
-| W1 chat | 50 | async | 1 | 50.0 | 2,042 | 2,080 | 2,101 | 0.00% | 0.00% | 10.9 | 177.2 |
-| W1 chat | 50 | reactive | 1 | 50.0 | 2,023 | 2,055 | 2,074 | 0.00% | 0.00% | 3.4 | 93.5 |
-| W1 chat | 75 | async | 1 | 75.0 | 1,977 | 2,005 | 2,025 | 0.00% | 0.00% | 13.0 | 214.9 |
-| W1 chat | 75 | reactive | 1 | 75.0 | 1,969 | 1,998 | 2,013 | 0.00% | 0.00% | 3.8 | 100.9 |
-| W1 chat | 100 | async | 1 | 100.0 | 1,967 | 1,994 | 2,009 | 0.00% | 0.00% | 20.0 | 261.6 |
-| W1 chat | 100 | reactive | 1 | 100.0 | 1,956 | 1,984 | 1,998 | 0.00% | 0.00% | 4.6 | 113.3 |
-| W1 chat | 125 | async | 1 | 125.0 | 1,964 | 1,990 | 2,004 | 0.00% | 0.00% | 29.0 | 309.4 |
-| W1 chat | 125 | reactive | 1 | 125.0 | 1,949 | 1,975 | 1,987 | 0.00% | 0.00% | 5.7 | 120.0 |
-| W1 chat | 150 | async | 1 | 150.0 | 1,970 | 1,997 | 2,009 | 0.00% | 0.00% | 41.7 | 347.4 |
-| W1 chat | 150 | reactive | 1 | 150.0 | 1,943 | 1,969 | 1,981 | 0.00% | 0.00% | 6.9 | 130.3 |
-| W1 chat | 175 | async | 1 | 175.0 | 2,007 | 2,036 | 2,049 | 0.00% | 0.00% | 53.1 | 383.3 |
-| W1 chat | 175 | reactive | 1 | 175.0 | 1,940 | 1,966 | 1,977 | 0.00% | 0.00% | 8.1 | 139.8 |
-| W1 chat | 190 | async | 5 | 190.0 | 2,052 | 2,091 | 2,108 | 0.00% | 0.00% | 55.4 | 406.1 |
-| W1 chat | 190 | reactive | 5 | 190.0 | 1,938 | 1,964 | 1,975 | 0.00% | 0.00% | 8.9 | 145.1 |
-| W1 chat | 200 | async | 5 | 200.0 | 5,500 | 8,695 | 8,958 | 0.00% | 0.00% | 57.8 | 514.8 |
-| W1 chat | 200 | reactive | 5 | 200.0 | 1,937 | 1,963 | 1,975 | 0.00% | 0.00% | 9.3 | 147.4 |
-| W1 chat | 210 | async | 5 | 210.0 | 10,114 | 17,452 | 18,113 | 0.00% | 0.00% | 59.5 | 737.7 |
-| W1 chat | 210 | reactive | 5 | 210.0 | 1,937 | 1,962 | 1,974 | 0.00% | 0.00% | 10.0 | 152.6 |
-| W1 chat | 225 | async | 1 | 225.0 | 16,489 | 23,010 | 23,043 | 4.70% | 0.00% | 60.7 | 1,020.7 |
-| W1 chat | 225 | reactive | 1 | 225.0 | 1,936 | 1,962 | 1,973 | 0.00% | 0.00% | 10.8 | 150.7 |
-| W1 chat | 250 | async | 1 | 250.0 | 22,901 | 23,027 | 23,058 | 14.30% | 0.00% | 63.2 | 1,066.2 |
-| W1 chat | 250 | reactive | 1 | 250.0 | 1,936 | 1,961 | 1,972 | 0.00% | 0.00% | 12.7 | 162.7 |
-| W1 chat | 300 | async | 1 | 300.0 | 22,926 | 23,001 | 23,026 | 28.60% | 0.00% | 64.3 | 1,019.9 |
-| W1 chat | 300 | reactive | 1 | 300.0 | 1,935 | 1,960 | 1,971 | 0.00% | 0.00% | 15.9 | 201.4 |
-| W1 chat | 350 | async | 1 | 350.0 | 23,097 | 23,189 | 23,216 | 39.00% | 0.00% | 62.8 | 1,147.2 |
-| W1 chat | 350 | reactive | 1 | 350.0 | 1,933 | 1,959 | 1,970 | 0.00% | 0.00% | 19.2 | 238.1 |
-| W1 chat | 400 | async | 1 | 400.0 | 23,009 | 23,074 | 23,096 | 46.60% | 0.00% | 64.9 | 1,244.7 |
-| W1 chat | 400 | reactive | 1 | 400.0 | 1,932 | 1,957 | 1,968 | 0.00% | 0.00% | 22.1 | 229.6 |
-| W1 chat | 500 | async | 1 | 500.0 | 23,115 | 23,207 | 23,243 | 57.30% | 0.00% | 65.1 | 1,322.6 |
-| W1 chat | 500 | reactive | 1 | 500.0 | 1,929 | 1,954 | 1,966 | 0.00% | 0.00% | 31.1 | 243.0 |
-| W1 chat | 650 | async | 1 | 650.0 | 23,239 | 23,380 | 23,416 | 67.40% | 0.00% | 64.5 | 1,443.0 |
-| W1 chat | 650 | reactive | 1 | 650.0 | 1,936 | 1,962 | 1,973 | 0.00% | 0.00% | 39.6 | 265.3 |
-| W2 chat + tool | 10 | async | 1 | 10.0 | 2,292 | 2,332 | 2,365 | 0.00% | 0.00% | 4.0 | 145.5 |
-| W2 chat + tool | 10 | reactive | 1 | 10.0 | 2,280 | 2,322 | 2,355 | 0.00% | 0.00% | 1.2 | 108.0 |
-| W2 chat + tool | 25 | async | 1 | 25.0 | 2,183 | 2,215 | 2,235 | 0.00% | 0.00% | 10.6 | 152.4 |
-| W2 chat + tool | 25 | reactive | 1 | 25.0 | 2,128 | 2,159 | 2,180 | 0.00% | 0.00% | 1.6 | 107.2 |
-| W2 chat + tool | 50 | async | 1 | 50.0 | 2,086 | 2,114 | 2,131 | 0.00% | 0.00% | 19.8 | 315.5 |
-| W2 chat + tool | 50 | reactive | 1 | 50.0 | 2,020 | 2,053 | 2,077 | 0.00% | 0.00% | 3.2 | 113.4 |
-| W2 chat + tool | 75 | async | 1 | 75.0 | 1,992 | 2,020 | 2,039 | 0.00% | 0.00% | 24.9 | 362.4 |
-| W2 chat + tool | 75 | reactive | 1 | 75.0 | 1,969 | 1,997 | 2,014 | 0.00% | 0.00% | 4.3 | 117.5 |
-| W2 chat + tool | 100 | async | 1 | 100.0 | 2,000 | 2,028 | 2,042 | 0.00% | 0.00% | 41.8 | 397.8 |
-| W2 chat + tool | 100 | reactive | 1 | 100.0 | 1,957 | 1,983 | 1,997 | 0.00% | 0.00% | 4.7 | 124.2 |
-| W2 chat + tool | 125 | async | 5 | 125.0 | 2,129 | 2,179 | 2,200 | 0.00% | 0.00% | 57.3 | 410.3 |
-| W2 chat + tool | 125 | reactive | 5 | 125.0 | 1,949 | 1,975 | 1,988 | 0.00% | 0.00% | 5.9 | 129.4 |
-| W2 chat + tool | 150 | async | 5 | 150.0 | 10,697 | 17,927 | 18,386 | 0.00% | 0.00% | 62.5 | 553.5 |
-| W2 chat + tool | 150 | reactive | 5 | 150.0 | 1,943 | 1,969 | 1,982 | 0.00% | 0.00% | 7.1 | 136.5 |
-| W2 chat + tool | 175 | async | 1 | 175.0 | 24,884 | 32,063 | 32,158 | 8.50% | 0.00% | 65.4 | 889.8 |
-| W2 chat + tool | 175 | reactive | 1 | 175.0 | 1,940 | 1,966 | 1,977 | 0.00% | 0.00% | 8.2 | 146.0 |
-| W2 chat + tool | 190 | async | 1 | 190.0 | 31,249 | 32,026 | 32,130 | 15.60% | 0.00% | 67.7 | 856.5 |
-| W2 chat + tool | 190 | reactive | 1 | 190.0 | 1,938 | 1,964 | 1,975 | 0.00% | 0.00% | 9.0 | 148.0 |
-| W2 chat + tool | 200 | async | 1 | 200.0 | 31,713 | 32,115 | 32,219 | 20.00% | 0.00% | 69.0 | 1,103.2 |
-| W2 chat + tool | 200 | reactive | 1 | 200.0 | 1,938 | 1,964 | 1,975 | 0.00% | 0.00% | 9.6 | 146.1 |
-| W2 chat + tool | 210 | async | 1 | 210.0 | 31,746 | 32,086 | 32,189 | 23.70% | 0.00% | 69.3 | 1,137.8 |
-| W2 chat + tool | 210 | reactive | 1 | 210.0 | 1,937 | 1,963 | 1,975 | 0.00% | 0.00% | 10.2 | 153.4 |
-| W2 chat + tool | 225 | async | 1 | 225.0 | 31,725 | 31,994 | 32,077 | 28.60% | 0.00% | 69.6 | 1,179.3 |
-| W2 chat + tool | 225 | reactive | 1 | 225.0 | 1,936 | 1,962 | 1,973 | 0.00% | 0.00% | 11.0 | 153.6 |
-| W2 chat + tool | 250 | async | 1 | 250.0 | 31,799 | 32,037 | 32,117 | 35.70% | 0.00% | 69.8 | 1,297.2 |
-| W2 chat + tool | 250 | reactive | 1 | 250.0 | 1,936 | 1,961 | 1,973 | 0.00% | 0.00% | 12.6 | 164.3 |
-| W2 chat + tool | 300 | async | 1 | 300.0 | 31,840 | 32,055 | 32,132 | 46.50% | 0.00% | 70.2 | 1,565.8 |
-| W2 chat + tool | 300 | reactive | 1 | 300.0 | 1,935 | 1,960 | 1,971 | 0.00% | 0.00% | 16.2 | 264.2 |
-| W2 chat + tool | 350 | async | 1 | 350.0 | 31,952 | 32,192 | 32,287 | 54.20% | 0.00% | 71.4 | 1,695.7 |
-| W2 chat + tool | 350 | reactive | 1 | 350.0 | 1,934 | 1,959 | 1,971 | 0.00% | 0.00% | 19.4 | 263.1 |
-| W2 chat + tool | 400 | async | 1 | 400.0 | 32,014 | 32,306 | 32,429 | 60.00% | 0.00% | 70.8 | 1,629.9 |
-| W2 chat + tool | 400 | reactive | 1 | 400.0 | 1,932 | 1,957 | 1,968 | 0.00% | 0.00% | 22.1 | 282.5 |
-| W2 chat + tool | 500 | async | 1 | 500.0 | 32,251 | 32,583 | 32,723 | 68.20% | 0.00% | 70.5 | 1,646.7 |
-| W2 chat + tool | 500 | reactive | 1 | 500.0 | 1,930 | 1,955 | 1,966 | 0.00% | 0.00% | 27.2 | 248.8 |
-| W2 chat + tool | 650 | async | 1 | 650.0 | 32,591 | 32,879 | 33,024 | 75.70% | 0.00% | 70.1 | 1,739.4 |
-| W2 chat + tool | 650 | reactive | 1 | 650.0 | 1,937 | 1,964 | 1,975 | 0.00% | 0.00% | 40.4 | 286.8 |
+#### 4.3.1 W0 non-AI stream
 
-#### 4.2.1 Recorded p99 confidence intervals
+| Target rps | Stack | n | Delivered rps | p50 ms | p95 ms | p99 ms | Errors | Dropped | CPU avg % | Heap used avg MB |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10 | async | 1 | 10.0 | 1,937 | 2,177 | 2,203 | 0.00% | 0.00% | 1.7 | 136.7 |
+| 10 | reactive | 1 | 10.0 | 2,041 | 2,070 | 2,096 | 0.00% | 0.00% | 0.8 | 107.7 |
+| 25 | async | 1 | 25.0 | 2,086 | 2,133 | 2,154 | 0.00% | 0.00% | 1.6 | 147.2 |
+| 25 | reactive | 1 | 25.0 | 1,957 | 1,979 | 1,991 | 0.00% | 0.00% | 1.3 | 103.3 |
+| 50 | async | 1 | 50.0 | 2,039 | 2,082 | 2,101 | 0.00% | 0.00% | 2.8 | 161.8 |
+| 50 | reactive | 1 | 50.0 | 1,880 | 1,900 | 1,917 | 0.00% | 0.00% | 2.3 | 110.7 |
+| 75 | async | 1 | 75.0 | 1,981 | 2,020 | 2,040 | 0.00% | 0.00% | 5.0 | 202.8 |
+| 75 | reactive | 1 | 75.0 | 1,886 | 1,919 | 1,933 | 0.00% | 0.00% | 3.0 | 117.9 |
+| 100 | async | 1 | 100.0 | 1,944 | 1,983 | 2,003 | 0.00% | 0.00% | 6.2 | 251.9 |
+| 100 | reactive | 1 | 100.0 | 1,810 | 1,833 | 1,848 | 0.00% | 0.00% | 3.7 | 118.4 |
+| 125 | async | 1 | 125.0 | 1,930 | 1,968 | 1,988 | 0.00% | 0.00% | 7.2 | 295.9 |
+| 125 | reactive | 1 | 125.0 | 1,796 | 1,822 | 1,856 | 0.00% | 0.00% | 4.2 | 119.8 |
+| 150 | async | 1 | 150.0 | 1,920 | 1,955 | 1,973 | 0.00% | 0.00% | 9.2 | 336.2 |
+| 150 | reactive | 1 | 150.0 | 1,792 | 1,816 | 1,833 | 0.00% | 0.00% | 5.0 | 122.2 |
+| 175 | async | 1 | 175.0 | 1,889 | 1,932 | 1,955 | 0.00% | 0.00% | 9.6 | 373.6 |
+| 175 | reactive | 1 | 175.0 | 1,751 | 1,769 | 1,783 | 0.00% | 0.00% | 5.4 | 121.8 |
+| 190 | async | 1 | 190.0 | 1,908 | 1,950 | 1,971 | 0.00% | 0.00% | 11.1 | 397.1 |
+| 190 | reactive | 1 | 190.0 | 1,748 | 1,763 | 1,774 | 0.00% | 0.00% | 4.7 | 121.7 |
+| 200 | async | 1 | 200.0 | 1,898 | 1,937 | 1,957 | 0.00% | 0.00% | 11.7 | 418.6 |
+| 200 | reactive | 1 | 200.0 | 1,750 | 1,764 | 1,775 | 0.00% | 0.00% | 5.1 | 122.9 |
+| 210 | async | 5 | 210.0 | 1,910 | 1,977 | 2,008 | 0.00% | 0.00% | 12.5 | 434.4 |
+| 210 | reactive | 5 | 210.0 | 1,751 | 1,766 | 1,778 | 0.00% | 0.00% | 5.2 | 121.7 |
+| 225 | async | 5 | 225.0 | 7,675 | 14,472 | 15,112 | 0.00% | 0.00% | 13.1 | 770.7 |
+| 225 | reactive | 5 | 225.0 | 1,750 | 1,764 | 1,775 | 0.00% | 0.00% | 5.5 | 124.7 |
+| 250 | async | 1 | 250.0 | 16,942 | 21,093 | 21,137 | 6.80% | 0.00% | 13.4 | 992.1 |
+| 250 | reactive | 1 | 250.0 | 1,740 | 1,754 | 1,765 | 0.00% | 0.00% | 5.7 | 126.2 |
+| 300 | async | 1 | 300.0 | 20,774 | 20,985 | 21,119 | 21.90% | 0.00% | 14.0 | 1,159.9 |
+| 300 | reactive | 1 | 300.0 | 1,728 | 1,740 | 1,750 | 0.00% | 0.00% | 6.4 | 134.8 |
+| 350 | async | 1 | 350.0 | 20,416 | 20,790 | 20,996 | 32.00% | 0.00% | 13.6 | 1,224.7 |
+| 350 | reactive | 1 | 350.0 | 1,716 | 1,727 | 1,738 | 0.00% | 0.00% | 7.3 | 141.9 |
+| 400 | async | 1 | 400.0 | 20,482 | 20,763 | 20,996 | 40.60% | 0.00% | 13.5 | 1,233.7 |
+| 400 | reactive | 1 | 400.0 | 1,709 | 1,720 | 1,729 | 0.00% | 0.00% | 7.9 | 153.7 |
+| 500 | async | 1 | 500.0 | 20,275 | 20,589 | 20,875 | 52.00% | 0.00% | 13.2 | 1,380.3 |
+| 500 | reactive | 1 | 500.0 | 1,704 | 1,715 | 1,723 | 0.00% | 0.00% | 10.2 | 167.8 |
+| 650 | async | 1 | 650.0 | 20,074 | 20,542 | 20,880 | 62.70% | 0.00% | 13.2 | 1,578.1 |
+| 650 | reactive | 1 | 650.0 | 1,691 | 1,700 | 1,708 | 0.00% | 0.00% | 13.4 | 182.3 |
+
+#### 4.3.2 W1 chat
+
+| Target rps | Stack | n | Delivered rps | p50 ms | p95 ms | p99 ms | Errors | Dropped | CPU avg % | Heap used avg MB |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10 | async | 1 | 10.0 | 2,287 | 2,329 | 2,358 | 0.00% | 0.00% | 2.6 | 152.9 |
+| 10 | reactive | 1 | 10.0 | 2,283 | 2,323 | 2,360 | 0.00% | 0.00% | 1.0 | 86.1 |
+| 25 | async | 1 | 25.0 | 2,156 | 2,188 | 2,205 | 0.00% | 0.00% | 6.9 | 161.5 |
+| 25 | reactive | 1 | 25.0 | 2,137 | 2,166 | 2,188 | 0.00% | 0.00% | 1.7 | 86.9 |
+| 50 | async | 1 | 50.0 | 2,042 | 2,080 | 2,101 | 0.00% | 0.00% | 10.9 | 177.2 |
+| 50 | reactive | 1 | 50.0 | 2,023 | 2,055 | 2,074 | 0.00% | 0.00% | 3.4 | 93.5 |
+| 75 | async | 1 | 75.0 | 1,977 | 2,005 | 2,025 | 0.00% | 0.00% | 13.0 | 214.9 |
+| 75 | reactive | 1 | 75.0 | 1,969 | 1,998 | 2,013 | 0.00% | 0.00% | 3.8 | 100.9 |
+| 100 | async | 1 | 100.0 | 1,967 | 1,994 | 2,009 | 0.00% | 0.00% | 20.0 | 261.6 |
+| 100 | reactive | 1 | 100.0 | 1,956 | 1,984 | 1,998 | 0.00% | 0.00% | 4.6 | 113.3 |
+| 125 | async | 1 | 125.0 | 1,964 | 1,990 | 2,004 | 0.00% | 0.00% | 29.0 | 309.4 |
+| 125 | reactive | 1 | 125.0 | 1,949 | 1,975 | 1,987 | 0.00% | 0.00% | 5.7 | 120.0 |
+| 150 | async | 1 | 150.0 | 1,970 | 1,997 | 2,009 | 0.00% | 0.00% | 41.7 | 347.4 |
+| 150 | reactive | 1 | 150.0 | 1,943 | 1,969 | 1,981 | 0.00% | 0.00% | 6.9 | 130.3 |
+| 175 | async | 1 | 175.0 | 2,007 | 2,036 | 2,049 | 0.00% | 0.00% | 53.1 | 383.3 |
+| 175 | reactive | 1 | 175.0 | 1,940 | 1,966 | 1,977 | 0.00% | 0.00% | 8.1 | 139.8 |
+| 190 | async | 5 | 190.0 | 2,052 | 2,091 | 2,108 | 0.00% | 0.00% | 55.4 | 406.1 |
+| 190 | reactive | 5 | 190.0 | 1,938 | 1,964 | 1,975 | 0.00% | 0.00% | 8.9 | 145.1 |
+| 200 | async | 5 | 200.0 | 5,500 | 8,695 | 8,958 | 0.00% | 0.00% | 57.8 | 514.8 |
+| 200 | reactive | 5 | 200.0 | 1,937 | 1,963 | 1,975 | 0.00% | 0.00% | 9.3 | 147.4 |
+| 210 | async | 5 | 210.0 | 10,114 | 17,452 | 18,113 | 0.00% | 0.00% | 59.5 | 737.7 |
+| 210 | reactive | 5 | 210.0 | 1,937 | 1,962 | 1,974 | 0.00% | 0.00% | 10.0 | 152.6 |
+| 225 | async | 1 | 225.0 | 16,489 | 23,010 | 23,043 | 4.70% | 0.00% | 60.7 | 1,020.7 |
+| 225 | reactive | 1 | 225.0 | 1,936 | 1,962 | 1,973 | 0.00% | 0.00% | 10.8 | 150.7 |
+| 250 | async | 1 | 250.0 | 22,901 | 23,027 | 23,058 | 14.30% | 0.00% | 63.2 | 1,066.2 |
+| 250 | reactive | 1 | 250.0 | 1,936 | 1,961 | 1,972 | 0.00% | 0.00% | 12.7 | 162.7 |
+| 300 | async | 1 | 300.0 | 22,926 | 23,001 | 23,026 | 28.60% | 0.00% | 64.3 | 1,019.9 |
+| 300 | reactive | 1 | 300.0 | 1,935 | 1,960 | 1,971 | 0.00% | 0.00% | 15.9 | 201.4 |
+| 350 | async | 1 | 350.0 | 23,097 | 23,189 | 23,216 | 39.00% | 0.00% | 62.8 | 1,147.2 |
+| 350 | reactive | 1 | 350.0 | 1,933 | 1,959 | 1,970 | 0.00% | 0.00% | 19.2 | 238.1 |
+| 400 | async | 1 | 400.0 | 23,009 | 23,074 | 23,096 | 46.60% | 0.00% | 64.9 | 1,244.7 |
+| 400 | reactive | 1 | 400.0 | 1,932 | 1,957 | 1,968 | 0.00% | 0.00% | 22.1 | 229.6 |
+| 500 | async | 1 | 500.0 | 23,115 | 23,207 | 23,243 | 57.30% | 0.00% | 65.1 | 1,322.6 |
+| 500 | reactive | 1 | 500.0 | 1,929 | 1,954 | 1,966 | 0.00% | 0.00% | 31.1 | 243.0 |
+| 650 | async | 1 | 650.0 | 23,239 | 23,380 | 23,416 | 67.40% | 0.00% | 64.5 | 1,443.0 |
+| 650 | reactive | 1 | 650.0 | 1,936 | 1,962 | 1,973 | 0.00% | 0.00% | 39.6 | 265.3 |
+
+#### 4.3.3 W2 chat + tool
+
+| Target rps | Stack | n | Delivered rps | p50 ms | p95 ms | p99 ms | Errors | Dropped | CPU avg % | Heap used avg MB |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10 | async | 1 | 10.0 | 2,292 | 2,332 | 2,365 | 0.00% | 0.00% | 4.0 | 145.5 |
+| 10 | reactive | 1 | 10.0 | 2,280 | 2,322 | 2,355 | 0.00% | 0.00% | 1.2 | 108.0 |
+| 25 | async | 1 | 25.0 | 2,183 | 2,215 | 2,235 | 0.00% | 0.00% | 10.6 | 152.4 |
+| 25 | reactive | 1 | 25.0 | 2,128 | 2,159 | 2,180 | 0.00% | 0.00% | 1.6 | 107.2 |
+| 50 | async | 1 | 50.0 | 2,086 | 2,114 | 2,131 | 0.00% | 0.00% | 19.8 | 315.5 |
+| 50 | reactive | 1 | 50.0 | 2,020 | 2,053 | 2,077 | 0.00% | 0.00% | 3.2 | 113.4 |
+| 75 | async | 1 | 75.0 | 1,992 | 2,020 | 2,039 | 0.00% | 0.00% | 24.9 | 362.4 |
+| 75 | reactive | 1 | 75.0 | 1,969 | 1,997 | 2,014 | 0.00% | 0.00% | 4.3 | 117.5 |
+| 100 | async | 1 | 100.0 | 2,000 | 2,028 | 2,042 | 0.00% | 0.00% | 41.8 | 397.8 |
+| 100 | reactive | 1 | 100.0 | 1,957 | 1,983 | 1,997 | 0.00% | 0.00% | 4.7 | 124.2 |
+| 125 | async | 5 | 125.0 | 2,129 | 2,179 | 2,200 | 0.00% | 0.00% | 57.3 | 410.3 |
+| 125 | reactive | 5 | 125.0 | 1,949 | 1,975 | 1,988 | 0.00% | 0.00% | 5.9 | 129.4 |
+| 150 | async | 5 | 150.0 | 10,697 | 17,927 | 18,386 | 0.00% | 0.00% | 62.5 | 553.5 |
+| 150 | reactive | 5 | 150.0 | 1,943 | 1,969 | 1,982 | 0.00% | 0.00% | 7.1 | 136.5 |
+| 175 | async | 1 | 175.0 | 24,884 | 32,063 | 32,158 | 8.50% | 0.00% | 65.4 | 889.8 |
+| 175 | reactive | 1 | 175.0 | 1,940 | 1,966 | 1,977 | 0.00% | 0.00% | 8.2 | 146.0 |
+| 190 | async | 1 | 190.0 | 31,249 | 32,026 | 32,130 | 15.60% | 0.00% | 67.7 | 856.5 |
+| 190 | reactive | 1 | 190.0 | 1,938 | 1,964 | 1,975 | 0.00% | 0.00% | 9.0 | 148.0 |
+| 200 | async | 1 | 200.0 | 31,713 | 32,115 | 32,219 | 20.00% | 0.00% | 69.0 | 1,103.2 |
+| 200 | reactive | 1 | 200.0 | 1,938 | 1,964 | 1,975 | 0.00% | 0.00% | 9.6 | 146.1 |
+| 210 | async | 1 | 210.0 | 31,746 | 32,086 | 32,189 | 23.70% | 0.00% | 69.3 | 1,137.8 |
+| 210 | reactive | 1 | 210.0 | 1,937 | 1,963 | 1,975 | 0.00% | 0.00% | 10.2 | 153.4 |
+| 225 | async | 1 | 225.0 | 31,725 | 31,994 | 32,077 | 28.60% | 0.00% | 69.6 | 1,179.3 |
+| 225 | reactive | 1 | 225.0 | 1,936 | 1,962 | 1,973 | 0.00% | 0.00% | 11.0 | 153.6 |
+| 250 | async | 1 | 250.0 | 31,799 | 32,037 | 32,117 | 35.70% | 0.00% | 69.8 | 1,297.2 |
+| 250 | reactive | 1 | 250.0 | 1,936 | 1,961 | 1,973 | 0.00% | 0.00% | 12.6 | 164.3 |
+| 300 | async | 1 | 300.0 | 31,840 | 32,055 | 32,132 | 46.50% | 0.00% | 70.2 | 1,565.8 |
+| 300 | reactive | 1 | 300.0 | 1,935 | 1,960 | 1,971 | 0.00% | 0.00% | 16.2 | 264.2 |
+| 350 | async | 1 | 350.0 | 31,952 | 32,192 | 32,287 | 54.20% | 0.00% | 71.4 | 1,695.7 |
+| 350 | reactive | 1 | 350.0 | 1,934 | 1,959 | 1,971 | 0.00% | 0.00% | 19.4 | 263.1 |
+| 400 | async | 1 | 400.0 | 32,014 | 32,306 | 32,429 | 60.00% | 0.00% | 70.8 | 1,629.9 |
+| 400 | reactive | 1 | 400.0 | 1,932 | 1,957 | 1,968 | 0.00% | 0.00% | 22.1 | 282.5 |
+| 500 | async | 1 | 500.0 | 32,251 | 32,583 | 32,723 | 68.20% | 0.00% | 70.5 | 1,646.7 |
+| 500 | reactive | 1 | 500.0 | 1,930 | 1,955 | 1,966 | 0.00% | 0.00% | 27.2 | 248.8 |
+| 650 | async | 1 | 650.0 | 32,591 | 32,879 | 33,024 | 75.70% | 0.00% | 70.1 | 1,739.4 |
+| 650 | reactive | 1 | 650.0 | 1,937 | 1,964 | 1,975 | 0.00% | 0.00% | 40.4 | 286.8 |
+
+#### 4.3.4 Recorded p99 confidence intervals
 
 The full grid above contains p99 point estimates only. These are all cells with a separately recorded p99 confidence interval.
 
@@ -638,7 +666,7 @@ The full grid above contains p99 point estimates only. These are all cells with 
 | W2 chat + tool | 150 | async | 5 | 18,386 | 17,920 | 18,766 |
 | W2 chat + tool | 150 | reactive | 5 | 1,982 | 1,981 | 1,982 |
 
-### 4.3 Output-token sensitivity
+### 4.4 Output-token sensitivity
 
 The W1 output-token probe varies generated response length. Shorter responses remain below the executor-residency boundary at higher rates, while longer responses cross it earlier.
 
@@ -663,7 +691,7 @@ The W1 output-token probe varies generated response length. Shorter responses re
 | 400 | 400 | async | 1 | 58,035 | 400.0 | 75.10% | 0.00% |
 | 400 | 400 | reactive | 1 | 5,952 | 400.0 | 0.00% | 1.00% |
 
-### 4.4 Buffered-response control
+### 4.5 Buffered-response control
 
 Buffered REST uses the same W1 residency as SSE. The matching async transition shows that request residency, rather than SSE framing, is the driver.
 
@@ -682,7 +710,7 @@ Buffered REST uses the same W1 residency as SSE. The matching async transition s
 | buffered | 400 | async | 3 | 22,308 | 400.0 | 45.00% | 0.00% |
 | buffered | 400 | reactive | 3 | 1,969 | 400.0 | 0.00% | 0.00% |
 
-### 4.5 Live Qwen prompt length
+### 4.6 Live Qwen prompt length
 
 The live-backend probe is a low-rate integration and prompt-sensitivity measurement. Short and medium prompts complete cleanly; the long prompt substantially increases TTFT and produces timeout errors on both stacks.
 
@@ -699,11 +727,11 @@ The live-backend probe is a low-rate integration and prompt-sensitivity measurem
 
 ## 5. Maintenance rules
 
-When the test or performance surface changes:
+Use the verification scope in [`README.md`](README.md#choose-verification-for-the-change):
 
-1. Recount `@Test` methods per service and update §1.1. Keep each async/reactive service pair within 5%.
-2. Run the unit coverage gate and keep line and branch coverage at or above 0.90 for every module.
-3. Recount Cucumber scenarios from source feature files only, run both stacks, and update §1.2.
+1. When `@Test` methods are added or removed, recount the affected service pairs and update §1.1 and totals. Keep each pair within 5%.
+2. For code/test changes, verify affected module coverage at or above 0.90 for both line and branch. Run all modules for shared-runtime changes or full FE sign-off.
+3. When Cucumber scenarios change, recount source feature files and update §1.2. Run affected behavior on both stacks; shared harness, profiles, gateway/auth, or cross-service contract changes and full sign-off require the full suite and Cucumber coverage on both stacks.
 4. If a benchmark is rerun, replace the affected table with the complete new grid and record its effective methodology in §2 or §4.
 5. Never pool rows produced with different topologies, load-tool transports, calibrations, backends, token counts, or prompt variants.
 6. Keep failed-request latency separate from successful latency, report dropped arrivals, and use per-run tail latency for confidence and significance analysis.
