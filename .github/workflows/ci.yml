@@ -131,6 +131,7 @@ jobs:
   integrations:
     name: Check optional CI/CD integrations
     runs-on: ubuntu-latest
+    permissions: {}
     outputs:
       sonar: ${{ steps.config.outputs.sonar }}
       docker: ${{ steps.config.outputs.docker }}
@@ -140,11 +141,9 @@ jobs:
         env:
           SONAR_ELIGIBLE: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || (github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository)) }}
           DOCKER_ELIGIBLE: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          SONAR_CONFIGURED: ${{ secrets.SONAR_TOKEN != '' && secrets.SONAR_ORGANIZATION != '' && secrets.SONAR_PROJECT_KEY != '' }}
+          SONAR_PARTIAL: ${{ secrets.SONAR_TOKEN != '' || secrets.SONAR_ORGANIZATION != '' || secrets.SONAR_PROJECT_KEY != '' }}
+          DOCKER_CONFIGURED: ${{ github.event_name == 'push' && secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
         run: |
           report() {
             local integration=$1 enabled=$2 reason=$3
@@ -154,19 +153,19 @@ jobs:
 
           if [[ "$SONAR_ELIGIBLE" != true ]]; then
             report sonar false 'Skipped for forks and Dependabot events.'
-          elif [[ -n "$SONAR_TOKEN" && -n "$SONAR_ORGANIZATION" && -n "$SONAR_PROJECT_KEY" ]]; then
+          elif [[ "$SONAR_CONFIGURED" == true ]]; then
             report sonar true 'Configured; quality gates will run.'
           else
             report sonar false 'Not configured; requires SONAR_TOKEN, SONAR_ORGANIZATION and SONAR_PROJECT_KEY.'
-            if [[ -n "$SONAR_TOKEN" || -n "$SONAR_ORGANIZATION" || -n "$SONAR_PROJECT_KEY" ]]; then
+            if [[ "$SONAR_PARTIAL" == true ]]; then
               echo '::warning::SonarCloud configuration is incomplete.'
             fi
           fi
 
           if [[ "$DOCKER_ELIGIBLE" != true ]]; then
             report docker false 'Image publication is not allowed for this event.'
-          elif [[ -n "$DOCKERHUB_USERNAME" && -n "$DOCKERHUB_TOKEN" ]]; then
-            report docker true 'Configured; publishing and cosign signing require all CI gates to pass.'
+          elif [[ "$DOCKER_CONFIGURED" == true ]]; then
+            report docker true 'Configured; publishing and cosign signing require the build and security gates to pass.'
           else
             report docker false 'Not configured; no images were published. Requires DOCKERHUB_USERNAME and DOCKERHUB_TOKEN.'
             echo '::warning::Docker Hub publication is not configured.'
@@ -237,6 +236,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
