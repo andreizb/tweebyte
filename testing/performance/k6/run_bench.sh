@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+source "${SCRIPT_DIR}/../lib/cleanup.sh"
 WORKLOADS_ROOT="${SCRIPT_DIR}/workloads"
 RESULTS_ROOT="${RESULTS_ROOT:-${REPO_ROOT}/testing-results/performance/k6}"
 
@@ -1104,6 +1105,7 @@ main() {
 
   mkdir -p "$RESULTS_ROOT"
   OUT_DIR="$(mktemp -d "${RESULTS_ROOT}/results_${WORKLOAD_SLUG}_$(date +%Y%m%d_%H%M%S)_XXXXXX")"
+  cleanup_result_init "$OUT_DIR" k6 "$RUNS" "${CONCURRENCY_LIST[*]}"
   {
     echo "benchmark_topology=${BENCHMARK_TOPOLOGY}"
     echo "benchmark_infra_topology=${BENCHMARK_INFRA_TOPOLOGY}"
@@ -1144,6 +1146,7 @@ main() {
       # alongside the k6 run — the data the §5.12 attribution figure needs.
       prom_poll_loop "$ACTUATOR_URL" "$PROM_CSV" &
       PROM_PID=$!
+      cleanup_track_writer "$PROM_PID"
 
       if [[ "$MODE" == "docker" ]]; then
         # Run k6 as a sibling container inside the compose network with the
@@ -1156,6 +1159,7 @@ main() {
         "$K6_BIN" run "${K6_ENV_ARGS[@]}" "$SCRIPT_JS" >> "$RUN_TXT" 2>&1 &
       fi
       K6_PID=$!
+      cleanup_track_writer "$K6_PID"
 
       if [[ "$COLLECT_RESOURCES" == "1" ]]; then
         (
@@ -1165,6 +1169,7 @@ main() {
           fi
         ) &
         SAMP_PID=$!
+        cleanup_track_writer "$SAMP_PID"
       else
         SAMP_PID=""
       fi
@@ -1187,6 +1192,7 @@ main() {
   done
 
   print_final_recap
+  cleanup_result_complete
   echo "Done. Logs in: $OUT_DIR"
 }
 

@@ -1,80 +1,178 @@
 #!/usr/bin/env bash
-# Shared cleanup helpers sourced by every workload wrapper under
-# testing/performance/{jmeter,k6}/workloads/<workload>/run.sh.
-#
-# Why this exists: JMeter raw .jtl + _filtered.jtl files can reach 1+ GB per
-# cell at conc=1000. A 14-cell × 5-run canonical produces ~35 GB/stack of
-# samples that are 100% disposable after cells.csv is aggregated. Operators
-# kept running out of disk. This lib centralises the "delete .jtl after
-# successful aggregation" + "remove partial dirs on abort" contract so every
-# wrapper inherits identical behaviour.
-#
-# Operator override: set KEEP_RAW=1 on the calling shell to preserve raw
-# samples (e.g., when you need to re-aggregate with different percentile cuts
-# from the same run without re-executing the bench). Default behaviour deletes
-# them after aggregation.
-#
-# Bash 3.2 safe (macOS default shell) — no associative arrays, careful array
-# expansions, set -u tolerant.
+# Exact-run cleanup shared by benchmark drivers and workload wrappers.
+# Bash 3.2 compatible. Raw JTL is disposable only after complete aggregation;
+# failed/cancelled runs and all KEEP_RAW=1 runs retain their diagnostic data.
 
-# Operator override — preserve raw .jtl/_filtered.jtl after aggregation.
 KEEP_RAW="${KEEP_RAW:-0}"
 
-# Marker file for the trap; set by cleanup_sweep_init, removed by
-# cleanup_sweep_finish. Result dirs created with mtime newer than this marker
-# are considered "part of this sweep" by the abort trap.
-SWEEP_MARKER=""
-
-# Find the most recently created result dir matching the given workload + tool.
-# Mirrors the `ls -dt ... | head -1` pattern that already lives at the bottom
-# of every wrapper, so behaviour stays consistent.
-#
-# Args: <repo> <tool>  <workload>
-#   tool:     'jmeter' or 'k6'
-#   workload: 'dbwrite-light-follow-create', 'dbwrite-heavy-tweet-update', etc. For
-#             k6 the lib normalises dashes to underscores to match run_bench.sh's dir naming.
-find_latest_result_dir() {
-    local repo="$1" tool="$2" workload="$3"
-    local wl_normalized
-    if [[ "$tool" == "k6" ]]; then
-        wl_normalized="${workload//-/_}"
-    else
-        wl_normalized="$workload"
+_cleanup_registry_init() {
+    if [[ -z "${BENCH_SWEEP_STATE:-}" ]]; then
+        BENCH_SWEEP_STATE="$(umask 077; mktemp -d "${TMPDIR:-/tmp}/tweebyte-sweep.XXXXXX")"
+        BENCH_SWEEP_STATE="$(cd "$BENCH_SWEEP_STATE" && pwd -P)"
+        : > "$BENCH_SWEEP_STATE/results"
+        export BENCH_SWEEP_STATE
     fi
-    ls -dt "${repo}/testing-results/performance/${tool}/results_${wl_normalized}_2026"* 2>/dev/null | head -1
+    [[ -d "$BENCH_SWEEP_STATE" && ! -L "$BENCH_SWEEP_STATE" &&
+       -f "$BENCH_SWEEP_STATE/results" && ! -L "$BENCH_SWEEP_STATE/results" ]]
 }
 
-# Delete the raw sample files in a completed result dir while preserving:
-#   * cells.csv          — aggregated per-cell metrics (the keeper)
-#   * figures/*.png      — generated plots
-#   * summary.txt        — run summary
-#   * *_jmeter.log       — JMeter logs (KB each, useful for debugging)
-#   * *_resources.csv    — per-cell heap/cpu samples (KB each)
-#   * *_prom.csv         — k6 Prometheus snapshot (KB)
-#   * *_validation.txt   — k6 validation output (KB)
-#   * <conc>_<run>.txt   — k6 textual report
-#   * boot-receipt.*     — effective startup metadata
-# Deletes (the JMeter bulk that's 99 % of disk):
-#   * *.jtl              — raw JMeter samples (already in cells.csv)
-#   * *_filtered.jtl     — filtered intermediate
-#
-# Args: <result_dir>
+# Immediately after the driver creates its output directory.
+# Args: <dir> <engine> [runs] [space-separated concurrencies]
+cleanup_result_init() {
+    local dir="$1" engine="$2"
+    CLEANUP_OWNS_REGISTRY=0
+    [[ -n "${BENCH_SWEEP_STATE:-}" ]] || CLEANUP_OWNS_REGISTRY=1
+    _cleanup_registry_init || return 1
+    [[ -d "$dir" && ! -L "$dir" ]] || return 1
+    CLEANUP_RESULT_DIR="$(cd "$dir" && pwd -P)"
+    [[ "$CLEANUP_RESULT_DIR" != *$'\n'* ]] || return 1
+    printf '%s\n' "$BENCH_SWEEP_STATE" > "$CLEANUP_RESULT_DIR/.cleanup-owner"
+    printf '%s\n' "$$" > "$CLEANUP_RESULT_DIR/.cleanup-writers"
+    printf '%s\n' "$engine" "${3:-}" "${4:-}" > "$CLEANUP_RESULT_DIR/.cleanup-expected"
+    printf '%s\n' "$CLEANUP_RESULT_DIR" >> "$BENCH_SWEEP_STATE/results"
+    trap '_cleanup_result_exit "$?"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+}
+
+cleanup_track_writer() {
+    printf '%s\n' "$1" >> "$CLEANUP_RESULT_DIR/.cleanup-writers"
+}
+
+_cleanup_owned() {
+    local dir="${1:-}" registered
+    [[ -n "${BENCH_SWEEP_STATE:-}" && -f "$BENCH_SWEEP_STATE/results" &&
+       -d "$dir" && ! -L "$dir" &&
+       -f "$dir/.cleanup-owner" && ! -L "$dir/.cleanup-owner" &&
+       -f "$dir/.cleanup-writers" && ! -L "$dir/.cleanup-writers" ]] || return 1
+    [[ "$(cd "$dir" && pwd -P)" == "$dir" &&
+       "$(cat "$dir/.cleanup-owner")" == "$BENCH_SWEEP_STATE" ]] || return 1
+    while IFS= read -r registered; do
+        [[ "$registered" != "$dir" ]] || return 0
+    done < "$BENCH_SWEEP_STATE/results"
+    return 1
+}
+
+_cleanup_writers_idle() {
+    local dir="$1" pid
+    while IFS= read -r pid; do
+        case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+        # Only the driver's own EXIT handler exempts the exiting driver.
+        [[ "$pid" != "${CLEANUP_EXIT_PID:-}" ]] || continue
+        if kill -0 "$pid" 2>/dev/null; then return 1; fi
+    done < "$dir/.cleanup-writers"
+}
+
+# Call only after the driver's final aggregation/recap returns.
+cleanup_result_complete() {
+    : > "$CLEANUP_RESULT_DIR/.cleanup-complete"
+}
+
 cleanup_raw_samples() {
     local dir="${1:-}"
-    if [[ -z "$dir" || ! -d "$dir" ]]; then
-        echo "[cleanup] no result dir to clean (got: '${dir:-<empty>}')" >&2
+    [[ "${KEEP_RAW:-0}" != 1 ]] || return 0
+    _cleanup_owned "$dir" || return 0
+    [[ -n "$(find "$dir" -maxdepth 2 -type f -name '*.jtl' -print -quit)" ]] || return 0
+    if [[ ! -f "$dir/.cleanup-complete" ]] || ! _cleanup_writers_idle "$dir"; then
+        echo "[cleanup] retained incomplete or active run: $dir" >&2
         return 0
     fi
-    if [[ "$KEEP_RAW" == "1" ]]; then
-        echo "[cleanup] KEEP_RAW=1 — preserving raw samples in $dir" >&2
+    # A header-only, truncated, or partially populated CSV is not proof that
+    # every requested cell/run was aggregated.
+    if ! python3 - "$dir" <<'PY'
+import csv
+import sys
+from pathlib import Path
+
+directory = Path(sys.argv[1])
+try:
+    expected_path = directory / '.cleanup-expected'
+    csv_path = directory / 'cells.csv'
+    if expected_path.is_symlink() or csv_path.is_symlink():
+        raise ValueError('symlinked metadata')
+    engine, runs, concurrencies = expected_path.read_text().splitlines()
+    if engine != 'jmeter':
+        raise ValueError('no JMeter aggregate')
+    with csv_path.open(newline='') as handle:
+        rows = list(csv.DictReader(handle))
+    expected = {int(c) for c in concurrencies.split()}
+    actual = {int(row['concurrency']) for row in rows}
+    assert expected and actual == expected and len(rows) == len(expected)
+    assert all(int(row['n']) == int(runs) and int(row['total_count']) > 0 for row in rows)
+except (OSError, ValueError, KeyError, TypeError, AssertionError, csv.Error):
+    sys.exit(1)
+PY
+    then
+        echo "[cleanup] retained raw samples; aggregation incomplete: $dir" >&2
         return 0
     fi
-    local before after
-    before=$(du -sh "$dir" 2>/dev/null | awk '{print $1}')
-    # -maxdepth 2 in case wrappers ever introduce a per-cell subdir layout
-    find "$dir" -maxdepth 2 -type f \( -name '*.jtl' -o -name '*_filtered.jtl' \) -delete 2>/dev/null
-    after=$(du -sh "$dir" 2>/dev/null | awk '{print $1}')
-    echo "[cleanup] $dir: $before -> $after (raw .jtl removed)" >&2
+    # Catch writers outside the driver's direct child list as well.
+    # Missing lsof or an inspection failure leaves the samples intact.
+    local open_pids lsof_status=0 lsof_errors
+    command -v lsof >/dev/null 2>&1 || {
+        echo "[cleanup] retained raw samples; lsof unavailable: $dir" >&2
+        return 0
+    }
+    lsof_errors="$(mktemp "$BENCH_SWEEP_STATE/lsof.XXXXXX")"
+    open_pids="$(lsof -t +D "$dir" 2>"$lsof_errors")" || lsof_status=$?
+    if [[ -n "$open_pids" || -s "$lsof_errors" || "$lsof_status" -gt 1 ]]; then
+        rm -f "$lsof_errors"
+        echo "[cleanup] retained raw samples; open files or uncertain writer state: $dir" >&2
+        return 0
+    fi
+    rm -f "$lsof_errors"
+    find "$dir" -maxdepth 2 -type f -name '*.jtl' -delete
+    echo "[cleanup] removed aggregated raw JTL from owned run: $dir" >&2
+}
+
+_cleanup_result_exit() {
+    local status="$1"
+    trap - EXIT
+    if ! _cleanup_owned "$CLEANUP_RESULT_DIR"; then
+        echo "[cleanup] ownership changed; leaving result untouched: $CLEANUP_RESULT_DIR" >&2
+        exit "$status"
+    fi
+    CLEANUP_EXIT_PID="$$"
+    printf 'exit_code=%s\n' "$status" > "$CLEANUP_RESULT_DIR/.cleanup-status"
+    if [[ "$status" -ne 0 ]]; then
+        rm -f "$CLEANUP_RESULT_DIR/.cleanup-complete"
+        echo "[cleanup] retained failed/cancelled run: $CLEANUP_RESULT_DIR" >&2
+    fi
+    cleanup_raw_samples "$CLEANUP_RESULT_DIR" || true
+    if [[ "$CLEANUP_OWNS_REGISTRY" == 1 ]]; then cleanup_sweep_finish; fi
+    exit "$status"
+}
+
+_on_sweep_abort() {
+    local status="$1"
+    echo "[cleanup] sweep interrupted; incomplete results are retained" >&2
+    cleanup_sweep_finish
+    exit "$status"
+}
+
+cleanup_sweep_init() {
+    _cleanup_registry_init || return 1
+    trap '_on_sweep_abort 130' INT
+    trap '_on_sweep_abort 143' TERM
+}
+
+cleanup_sweep_finish() {
+    local dir active=0
+    if [[ -n "${BENCH_SWEEP_STATE:-}" && -f "$BENCH_SWEEP_STATE/results" ]]; then
+        while IFS= read -r dir; do
+            _cleanup_owned "$dir" || continue
+            if ! _cleanup_writers_idle "$dir"; then active=1; fi
+            cleanup_raw_samples "$dir" || true
+        done < "$BENCH_SWEEP_STATE/results"
+        if [[ "$active" == 0 ]]; then
+            rm -f "$BENCH_SWEEP_STATE/results"
+            rmdir "$BENCH_SWEEP_STATE" 2>/dev/null || true
+        else
+            echo "[cleanup] active writers remain; registry retained: $BENCH_SWEEP_STATE" >&2
+        fi
+    fi
+    unset BENCH_SWEEP_STATE
+    trap - INT TERM
 }
 
 # Flush the shared Redis before a stack's load run, giving each stack a COLD
@@ -101,62 +199,4 @@ flush_cache() {
     else
         echo "[cleanup] WARN: Redis FLUSHALL failed (is Redis up on 127.0.0.1:63790?)" >&2
     fi
-}
-
-# Remove a result dir entirely. Used on per-stack failure (status != 0).
-# Args: <result_dir>
-remove_partial_result_dir() {
-    local dir="${1:-}"
-    if [[ -n "$dir" && -d "$dir" ]]; then
-        echo "[cleanup] removing partial result dir: $dir" >&2
-        rm -rf "$dir"
-    fi
-}
-
-# Trap handler — fires on INT (Ctrl-C) or TERM (kill). Finds any result dirs
-# under testing-results/performance/ that were created since the sweep started
-# (mtime newer than SWEEP_MARKER) and removes them entirely. The marker is
-# unset by cleanup_sweep_finish on the success path so post-sweep signals
-# don't accidentally delete cleaned-up dirs.
-_on_sweep_abort() {
-    local exit_code=$?
-    echo "" >&2
-    echo "[cleanup] sweep aborted (exit=$exit_code) — checking for partial result dirs" >&2
-    if [[ -n "$SWEEP_MARKER" && -f "$SWEEP_MARKER" ]]; then
-        local repo_root
-        repo_root="$(cd "$(dirname "$SWEEP_MARKER")/../.." 2>/dev/null && pwd || true)"
-        # Fall back to PWD if we can't derive repo from the marker's location
-        [[ -z "$repo_root" || ! -d "${repo_root}/testing-results" ]] && repo_root="${REPO:-$PWD}"
-
-        local count=0
-        while IFS= read -r d; do
-            [[ -z "$d" ]] && continue
-            echo "[cleanup]   rm -rf $d" >&2
-            rm -rf "$d"
-            count=$((count + 1))
-        done < <(find "${repo_root}/testing-results/performance" -maxdepth 3 -type d -name 'results_*' -newer "$SWEEP_MARKER" 2>/dev/null)
-        echo "[cleanup] removed $count partial result dir(s)" >&2
-        rm -f "$SWEEP_MARKER"
-    else
-        echo "[cleanup] no sweep marker — nothing to roll back" >&2
-    fi
-    exit "$exit_code"
-}
-
-# Call once at the top of a wrapper, after computing $REPO and $WORKLOAD.
-# Creates the sweep marker file and registers the abort trap.
-cleanup_sweep_init() {
-    SWEEP_MARKER="$(mktemp -t tweebyte-sweep.XXXXXX)"
-    trap '_on_sweep_abort' INT TERM
-}
-
-# Call at the end of a successful sweep — removes the marker so that any
-# later INT/TERM (e.g., during teardown or after the script logically
-# finishes) doesn't trigger spurious cleanup of completed result dirs.
-cleanup_sweep_finish() {
-    if [[ -n "$SWEEP_MARKER" && -f "$SWEEP_MARKER" ]]; then
-        rm -f "$SWEEP_MARKER"
-    fi
-    SWEEP_MARKER=""
-    trap - INT TERM
 }
