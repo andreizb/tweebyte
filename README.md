@@ -40,11 +40,11 @@ Run `./run.sh --help` for the current command tree. Deployment profiles and loca
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | System components, data flow, security design, profiles, and invariants |
 | [`SECURITY.md`](SECURITY.md) | Supported line, security boundary, and private vulnerability reporting |
-| [`AGENTS.md`](AGENTS.md) | Coding-agent rules, implementation guardrails, benchmark operating knowledge, and pinned versions |
-| [`backend/README.md`](backend/README.md) | Backend layout and service-level development commands |
+| [`AGENTS.md`](AGENTS.md) | Coding-agent rules, implementation guardrails, and task-based documentation routing |
+| [`backend/README.md`](backend/README.md) | Backend layout, configuration/media contracts, and service-level development commands |
 | [`frontend/README.md`](frontend/README.md) | Frontend structure, runtime configuration, and development commands |
 | [`deployment/README.md`](deployment/README.md) | Runtime commands, compose overlays, profiles, ports, and topologies |
-| [`testing/README.md`](testing/README.md) | Test surfaces and output locations |
+| [`testing/README.md`](testing/README.md) | Test surfaces, verification scope, and output locations |
 | [`testing/performance/README.md`](testing/performance/README.md) | Benchmark engines, profiles, methodology rules, and result cleanup |
 | [`testing/RESULTS.md`](testing/RESULTS.md) | Current test status and complete retained measurement tables |
 

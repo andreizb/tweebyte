@@ -20,7 +20,7 @@ Common commands:
 # Bring up infrastructure (Postgres, Redis, toxiproxy) only.
 ./run.sh runtime up infra prod
 
-# Full async stack on the prod profile.
+# Full async stack using the prod deployment label (base Spring configuration).
 ./run.sh runtime up async prod
 
 # Full reactive stack on the benchmark profile.
@@ -110,17 +110,17 @@ The compose files live under `deployment/docker-compose/`:
 | `benchmark` | Selected independently as `native-local`, `local-app`, or `all-docker`; retained measurements use `native-local`. | Direct service HTTP plus direct DB/Redis wiring for the selected topology. Default app JVM cap is `-Xmx4g`; override service-specific `*_JAVA_TOOL_OPTIONS` only for an explicitly isolated experiment. |
 | `functional-equivalence` | Same topology, layered with the JaCoCo overlay. | JaCoCo agent on each service JVM; coverage `.exec` files drop under `testing-results/functional-equivalence/jacoco/`. No toxiproxy, no JVM heap caps. |
 
-The three profiles are mutually exclusive at runtime — `prod` and `benchmark` paths are never instrumented by FE; FE is never tuned by benchmark heap caps. See [`../AGENTS.md`](../AGENTS.md) §Testing for the full override matrix.
+The three profiles are mutually exclusive at runtime — `prod` and `benchmark` paths are never instrumented by FE; FE is never tuned by benchmark heap caps. See [`../testing/performance/README.md`](../testing/performance/README.md#benchmark-runtime-posture) for benchmark JVM defaults and experiment overrides.
 
 ### Spring Property Files
 
 `prod` is a deployment label, not a Spring property-file suffix. For app services, prod/default mode intentionally uses base `application.properties` with `SPRING_PROFILES_ACTIVE` empty. There is no `application-prod.properties`, and agents should not create one.
 
-Benchmark mode sets `SPRING_PROFILES_ACTIVE=benchmark`, so Spring loads base `application.properties` plus `application-benchmark.properties`. Put prod/default behaviour in base; put benchmark-only feature neutralisation and measured benchmark defaults in the benchmark overlay.
+Benchmark mode sets `SPRING_PROFILES_ACTIVE=benchmark`, so Spring loads base `application.properties` plus `application-benchmark.properties`. Put production/default ON values in base and benchmark-neutralising OFF values and measured knobs in the benchmark overlay. Base also applies beneath functional-equivalence unless a test resource shadows it; the FE JaCoCo overlay is not a reason to create a prod property file. Use env vars for topology, secrets, and per-run experimental values. The literal feature-gating contract is documented in [`../backend/README.md`](../backend/README.md#configuration-and-feature-gating).
 
 ## Ports
 
-Mapped 1:1 container/host:
+Host-facing ports are listed below. Service HTTP ports map 1:1 in Compose; each Postgres container listens internally on 5432 and Redis on 6379. Native-local infrastructure uses the listed host ports directly.
 
 | Component | Port |
 |---|---:|
@@ -144,4 +144,4 @@ Mapped 1:1 container/host:
 - [`../ARCHITECTURE.md`](../ARCHITECTURE.md) — services, ports, invariants.
 - [`../testing/README.md`](../testing/README.md) — what each profile is exercised by.
 - [`../SECURITY.md`](../SECURITY.md) — trusted-network assumptions, secrets, certificates, and reporting.
-- [`../AGENTS.md`](../AGENTS.md) — env-var matrix, JVM-flag overrides, KNOWLEDGE PRESERVE notes.
+- [`../AGENTS.md`](../AGENTS.md) — project-wide agent rules. Benchmark execution details live in [`../testing/performance/README.md`](../testing/performance/README.md).
