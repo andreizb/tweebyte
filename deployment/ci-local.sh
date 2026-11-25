@@ -4,7 +4,7 @@
 # The cloud half lives in .github/workflows/ci.yml. This is the local half: it
 # runs the same build/test/lint gate (Java services + Angular frontend), then can
 # optionally run the FE (functional-equivalence Cucumber) suite and a Sonar scan
-# to a LOCAL SonarQube. cosign keyless signing and Docker Hub push are cloud-only
+# to a LOCAL SonarQube. cosign keyless signing and GHCR publication are cloud-only
 # (OIDC + Sigstore Fulcio/Rekor) and are intentionally absent here.
 #
 # Runtime/deployment stays owned by ./run.sh and by the FE/performance harnesses

@@ -2,6 +2,23 @@
 
 Runtime entry point for the Tweebyte stacks. Docker Compose owns infrastructure and can still own full app stacks; benchmark workloads can also run app services as local JVMs against Docker-managed infra.
 
+## Optional container publication
+
+GitHub Actions publishes the eight backend service images to GitHub Container
+Registry only when the repository Actions variable `PUBLISH_IMAGES` is set to
+`true`. Set it in **Settings → Secrets and variables → Actions → Variables**.
+Only pushes to `main` and `v*` tags are eligible, and the required build, lint,
+test, and security jobs must pass first. No Docker Hub account, PAT, or custom
+registry secret is needed: the publish job uses its short-lived `GITHUB_TOKEN`
+and signs each image by digest with keyless Cosign.
+
+Names follow `ghcr.io/<owner>/tweebyte-<service>-<stack>`. Use
+`REGISTRY=ghcr.io/<owner>` with the pull-only overlay when consuming these
+backend images; that overlay also requires a frontend image supplied separately.
+New GHCR packages are private by default even when this repository is public.
+Review each package's visibility before expecting anonymous pulls; private pulls
+require appropriate package read access. [GHCR visibility and authentication](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+
 ## Entry script
 
 ```bash
