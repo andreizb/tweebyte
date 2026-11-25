@@ -14,7 +14,7 @@ Use the relevant sections of these references; this list is not a mandatory read
 | Backend implementation, configuration, media, or module commands | [`backend/README.md`](backend/README.md) |
 | Frontend behavior or browser tests | [`frontend/README.md`](frontend/README.md), and [`frontend/e2e/README.md`](frontend/e2e/README.md) for E2E work |
 | Runtime, deployment profiles, or topology | [`deployment/README.md`](deployment/README.md) |
-| Choosing verification and updating test evidence | [`testing/README.md`](testing/README.md#choose-verification-for-the-change) |
+| Choosing verification and updating test evidence | [`testing/README.md`](testing/README.md#choose-verification-for-the-change) and [QUALITY.md](QUALITY.md) |
 | Shared Cucumber behavior or FE coverage | [`testing/functional-equivalence/README.md`](testing/functional-equivalence/README.md) |
 | Preparing, running, or changing benchmarks | Relevant sections of [`testing/performance/README.md`](testing/performance/README.md): execution modes, cleanup, methodology, AI streaming, and recorded pins |
 | Recorded measurements or changed counts/methodology | Affected sections of [`testing/RESULTS.md`](testing/RESULTS.md) |
