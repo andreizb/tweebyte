@@ -128,14 +128,57 @@ jobs:
       - name: Production build
         run: npm run build
 
+  integrations:
+    name: Check optional CI/CD integrations
+    runs-on: ubuntu-latest
+    outputs:
+      sonar: ${{ steps.config.outputs.sonar }}
+      docker: ${{ steps.config.outputs.docker }}
+    steps:
+      - name: Check required settings without printing values
+        id: config
+        env:
+          SONAR_ELIGIBLE: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || (github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository)) }}
+          DOCKER_ELIGIBLE: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          report() {
+            local integration=$1 enabled=$2 reason=$3
+            printf '%s=%s\n' "$integration" "$enabled" >> "$GITHUB_OUTPUT"
+            printf -- '- **%s**: %s\n' "$integration" "$reason" >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          if [[ "$SONAR_ELIGIBLE" != true ]]; then
+            report sonar false 'Skipped for forks and Dependabot events.'
+          elif [[ -n "$SONAR_TOKEN" && -n "$SONAR_ORGANIZATION" && -n "$SONAR_PROJECT_KEY" ]]; then
+            report sonar true 'Configured; quality gates will run.'
+          else
+            report sonar false 'Not configured; requires SONAR_TOKEN, SONAR_ORGANIZATION and SONAR_PROJECT_KEY.'
+            if [[ -n "$SONAR_TOKEN" || -n "$SONAR_ORGANIZATION" || -n "$SONAR_PROJECT_KEY" ]]; then
+              echo '::warning::SonarCloud configuration is incomplete.'
+            fi
+          fi
+
+          if [[ "$DOCKER_ELIGIBLE" != true ]]; then
+            report docker false 'Image publication is not allowed for this event.'
+          elif [[ -n "$DOCKERHUB_USERNAME" && -n "$DOCKERHUB_TOKEN" ]]; then
+            report docker true 'Configured; publishing and cosign signing require all CI gates to pass.'
+          else
+            report docker false 'Not configured; no images were published. Requires DOCKERHUB_USERNAME and DOCKERHUB_TOKEN.'
+            echo '::warning::Docker Hub publication is not configured.'
+          fi
+
   sonarcloud:
     name: sonarcloud (${{ matrix.module }})
     runs-on: ubuntu-latest
-    needs: build-test-lint
+    needs: [build-test-lint, integrations]
     permissions:
       contents: read
-    # Sonar needs a token; skip cleanly on forks where the secret is absent.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: needs.integrations.outputs.sonar == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -173,14 +216,16 @@ jobs:
         working-directory: ${{ matrix.module }}
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: >-
-          ./mvnw -B -ntp
-          verify
-          org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
-          -Dsonar.host.url=https://sonarcloud.io
-          -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
-          -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}-$(echo '${{ matrix.module }}' | tr '/' '-')
-          -Dsonar.qualitygate.wait=true
+          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          MODULE: ${{ matrix.module }}
+        run: |
+          ./mvnw -B -ntp verify \
+            org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+            -Dsonar.host.url=https://sonarcloud.io \
+            "-Dsonar.organization=${SONAR_ORGANIZATION}" \
+            "-Dsonar.projectKey=${SONAR_PROJECT_KEY}-${MODULE//\//-}" \
+            -Dsonar.qualitygate.wait=true
 
   security:
     name: security (trivy + owasp + sbom)
@@ -201,53 +246,102 @@ jobs:
           cache: maven
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: v0.76.2
           scan-type: fs
           scan-ref: .
           format: sarif
           output: trivy-fs.sarif
           severity: CRITICAL,HIGH
+          limit-severities-for-sarif: true
           ignore-unfixed: true
           exit-code: '1'
 
       - name: Upload Trivy SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: "!cancelled() && hashFiles('trivy-fs.sarif') != ''"
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-fs
 
-      - name: OWASP Dependency-Check
-        uses: dependency-check/Dependency-Check_Action@3.3.0
+      - name: Get UTC date
+        if: "!cancelled()"
+        id: owasp-date
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache OWASP vulnerability data
+        if: "!cancelled()"
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
-          project: tweebyte
-          path: .
-          format: SARIF
-          args: >-
+          path: ${{ runner.temp }}/dependency-check-data
+          key: owasp-13.0.0-${{ runner.os }}-${{ steps.owasp-date.outputs.day }}
+          restore-keys: owasp-13.0.0-${{ runner.os }}-
+
+      - name: Install verified OWASP Dependency-Check CLI
+        if: "!cancelled()"
+        id: owasp-install
+        env:
+          DEPENDENCY_CHECK_VERSION: '13.0.0'
+          DEPENDENCY_CHECK_SHA256: 44d920d1ec03e948df862a253f0912782a31b9beee8a7c8895b9cb95760176ed
+        run: |
+          archive="$RUNNER_TEMP/dependency-check.zip"
+          curl --fail --show-error --silent --location --retry 3 \
+            --proto '=https' --proto-redir '=https' \
+            "https://github.com/dependency-check/DependencyCheck/releases/download/v${DEPENDENCY_CHECK_VERSION}/dependency-check-${DEPENDENCY_CHECK_VERSION}-release.zip" \
+            --output "$archive"
+          printf '%s  %s\n' "$DEPENDENCY_CHECK_SHA256" "$archive" | sha256sum --check --strict
+          unzip -q "$archive" -d "$RUNNER_TEMP"
+
+      - name: OWASP Dependency-Check
+        if: "!cancelled() && steps.owasp-install.outcome == 'success'"
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          mkdir -p reports "$RUNNER_TEMP/dependency-check-data"
+          args=(
+            --project tweebyte
             --scan backend/async --scan backend/reactive
+            --format SARIF --out reports
+            --data "$RUNNER_TEMP/dependency-check-data"
             --failOnCVSS 7
-            --nvdApiKey ${{ secrets.NVD_API_KEY }}
+          )
+          if [[ -n "$NVD_API_KEY" ]]; then
+            if [[ ! "$NVD_API_KEY" =~ ^[A-Za-z0-9-]+$ ]]; then
+              echo '::error::NVD_API_KEY is not in the expected alphanumeric/hyphen format.'
+              exit 1
+            fi
+            properties="$(mktemp "$RUNNER_TEMP/dependency-check.XXXXXX")"
+            trap 'rm -f -- "$properties"' EXIT
+            printf 'nvd.api.key=%s\n' "$NVD_API_KEY" > "$properties"
+            args+=(--propertyfile "$properties")
+          else
+            echo '::notice::NVD_API_KEY is not configured; fetching public NVD data may take longer.'
+          fi
+          unset NVD_API_KEY
+          "$RUNNER_TEMP/dependency-check/bin/dependency-check.sh" "${args[@]}"
 
       - name: Upload OWASP SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: "!cancelled() && hashFiles('reports/dependency-check-report.sarif') != ''"
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4
         with:
           sarif_file: reports/dependency-check-report.sarif
           category: owasp-dependency-check
 
       - name: Generate CycloneDX SBOM (Syft)
-        uses: anchore/sbom-action@v0.17.7
+        if: "!cancelled()"
+        uses: anchore/sbom-action@dfcb83b97731532d72be422cbc51ee64adb6fd56 # v0.24.4
         with:
           path: .
           format: cyclonedx-json
           artifact-name: sbom.cyclonedx.json
+          upload-release-assets: false
 
   build-sign-push:
     name: image build + cosign sign + push (${{ matrix.service }} / ${{ matrix.stack }})
     runs-on: ubuntu-latest
-    needs: [build-test-lint, functional-equivalence-lint, frontend, security]
-    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+    needs: [build-test-lint, functional-equivalence-lint, frontend, security, integrations]
+    if: ${{ needs.integrations.outputs.docker == 'true' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
     permissions:
       contents: read
       # cosign keyless OIDC token.
