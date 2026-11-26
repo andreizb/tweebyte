@@ -161,10 +161,9 @@ jobs:
       - name: Check required settings without printing values
         id: config
         env:
-          SONAR_ELIGIBLE: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || (github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository)) }}
+          SONAR_ELIGIBLE: ${{ github.repository == 'andreizb/tweebyte' && github.actor != 'dependabot[bot]' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository)) }}
           PUBLISH_ELIGIBLE: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
-          SONAR_CONFIGURED: ${{ secrets.SONAR_TOKEN != '' && secrets.SONAR_ORGANIZATION != '' && secrets.SONAR_PROJECT_KEY != '' }}
-          SONAR_PARTIAL: ${{ secrets.SONAR_TOKEN != '' || secrets.SONAR_ORGANIZATION != '' || secrets.SONAR_PROJECT_KEY != '' }}
+          SONAR_CONFIGURED: ${{ secrets.SONAR_TOKEN != '' }}
           PUBLISH_ENABLED: ${{ vars.PUBLISH_IMAGES == 'true' }}
         run: |
           report() {
@@ -174,14 +173,11 @@ jobs:
           }
 
           if [[ "$SONAR_ELIGIBLE" != true ]]; then
-            report sonar false 'Skipped for forks and Dependabot events.'
+            report sonar false 'Skipped outside Tweebyte main and trusted same-repository PRs.'
           elif [[ "$SONAR_CONFIGURED" == true ]]; then
             report sonar true 'Configured; quality gates will run.'
           else
-            report sonar false 'Not configured; requires SONAR_TOKEN, SONAR_ORGANIZATION and SONAR_PROJECT_KEY.'
-            if [[ "$SONAR_PARTIAL" == true ]]; then
-              echo '::warning::SonarCloud configuration is incomplete.'
-            fi
+            report sonar false 'Not configured; requires the SONAR_TOKEN repository Actions secret.'
           fi
 
           if [[ "$PUBLISH_ELIGIBLE" != true ]]; then
@@ -193,30 +189,18 @@ jobs:
           fi
 
   sonarcloud:
-    name: sonarcloud (${{ matrix.module }})
+    name: SonarQube Cloud quality gate
     runs-on: ubuntu-latest
-    needs: [build-test-lint, integrations]
+    needs: [build-test-lint, frontend, integrations]
     permissions:
       contents: read
     if: needs.integrations.outputs.sonar == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        module:
-          - backend/async/gateway-service
-          - backend/async/user-service
-          - backend/async/tweet-service
-          - backend/async/interaction-service
-          - backend/reactive/gateway-service
-          - backend/reactive/user-service
-          - backend/reactive/tweet-service
-          - backend/reactive/interaction-service
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Full history gives Sonar accurate new-code / blame data.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
@@ -225,26 +209,39 @@ jobs:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           cache: maven
 
-      - name: Cache SonarCloud packages
-        uses: actions/cache@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          path: ~/.sonar/cache
-          key: sonar-${{ runner.os }}
-          restore-keys: sonar-${{ runner.os }}
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Build with coverage and run SonarCloud scan
-        working-directory: ${{ matrix.module }}
+      - name: Generate backend bytecode, JaCoCo reports and analysis classpath
+        run: |
+          for module in backend/{async,reactive}/{gateway,user,tweet,interaction}-service; do
+            (
+              cd "$module"
+              ./mvnw -B -ntp verify dependency:build-classpath \
+                -Dmdep.outputFile=target/sonar-classpath.txt
+            )
+          done
+
+      - name: Generate frontend coverage
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test -- --coverage.reporter=lcov
+
+      - name: Prepare monorepo scanner properties and coverage
+        run: python3 .github/scripts/prepare-sonar-coverage.py
+
+      - name: Scan and enforce SonarQube Cloud quality gate
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
-          MODULE: ${{ matrix.module }}
-        run: |
-          ./mvnw -B -ntp verify \
-            org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
-            -Dsonar.host.url=https://sonarcloud.io \
-            "-Dsonar.organization=${SONAR_ORGANIZATION}" \
-            "-Dsonar.projectKey=${SONAR_PROJECT_KEY}-${MODULE//\//-}" \
+        with:
+          args: >
+            -Dproject.settings=testing-results/sonar/scan.properties
             -Dsonar.qualitygate.wait=true
 
   security:

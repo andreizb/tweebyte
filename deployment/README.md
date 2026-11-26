@@ -162,3 +162,26 @@ Host-facing ports are listed below. Service HTTP ports map 1:1 in Compose; each 
 - [`../testing/README.md`](../testing/README.md) — what each profile is exercised by.
 - [`../SECURITY.md`](../SECURITY.md) — trusted-network assumptions, secrets, certificates, and reporting.
 - [`../AGENTS.md`](../AGENTS.md) — project-wide agent rules. Benchmark execution details live in [`../testing/performance/README.md`](../testing/performance/README.md).
+
+### SonarQube Cloud in GitHub Actions
+
+The `SonarQube Cloud quality gate` CI job scans both backend stacks and the
+frontend as one project (`andreizb_tweebyte` in organization `andreizb`).
+It imports JaCoCo coverage under exact repository-relative Java paths so files
+shared by name across the async and reactive stacks are not confused; frontend
+coverage comes from Vitest LCOV. Local Sonar verification is unchanged.
+
+To switch this project from automatic to CI-based analysis, store the analysis
+token directly as the GitHub repository Actions secret `SONAR_TOKEN`; do not
+send it in a message or commit it. On SonarQube Cloud, turn off automatic
+analysis for **Tweebyte only** just before validating the first CI run.
+The organization and project keys are public and are already in the scan
+configuration. On plans supporting scoped organization tokens, grant only
+Execute analysis on Tweebyte. The OSS plan instead requires a personal Sonar
+token with the permissions of its issuer; prefer an issuer restricted to
+analysis of this project where practical.
+
+The CI job runs on main and same-repository pull requests, excluding
+Dependabot. Publication remains separately controlled by the existing job and
+security gates. Check the first CI run and the SonarQube Cloud project for a
+completed quality gate and imported coverage before relying on it.
