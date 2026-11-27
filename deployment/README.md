@@ -2,6 +2,23 @@
 
 Runtime entry point for the Tweebyte stacks. Docker Compose owns infrastructure and can still own full app stacks; benchmark workloads can also run app services as local JVMs against Docker-managed infra.
 
+## Optional container publication
+
+GitHub Actions publishes the eight backend service images to GitHub Container
+Registry only when the repository Actions variable `PUBLISH_IMAGES` is set to
+`true`. Set it in **Settings → Secrets and variables → Actions → Variables**.
+Only pushes to `main` and `v*` tags are eligible, and the required build, lint,
+test, and security jobs must pass first. No Docker Hub account, PAT, or custom
+registry secret is needed: the publish job uses its short-lived `GITHUB_TOKEN`
+and signs each image by digest with keyless Cosign.
+
+Names follow `ghcr.io/<owner>/tweebyte-<service>-<stack>`. Use
+`REGISTRY=ghcr.io/<owner>` with the pull-only overlay when consuming these
+backend images; that overlay also requires a frontend image supplied separately.
+New GHCR packages are private by default even when this repository is public.
+Review each package's visibility before expecting anonymous pulls; private pulls
+require appropriate package read access. [GHCR visibility and authentication](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+
 ## Entry script
 
 ```bash
@@ -20,7 +37,7 @@ Common commands:
 # Bring up infrastructure (Postgres, Redis, toxiproxy) only.
 ./run.sh runtime up infra prod
 
-# Full async stack on the prod profile.
+# Full async stack using the prod deployment label (base Spring configuration).
 ./run.sh runtime up async prod
 
 # Full reactive stack on the benchmark profile.
@@ -110,17 +127,17 @@ The compose files live under `deployment/docker-compose/`:
 | `benchmark` | Selected independently as `native-local`, `local-app`, or `all-docker`; retained measurements use `native-local`. | Direct service HTTP plus direct DB/Redis wiring for the selected topology. Default app JVM cap is `-Xmx4g`; override service-specific `*_JAVA_TOOL_OPTIONS` only for an explicitly isolated experiment. |
 | `functional-equivalence` | Same topology, layered with the JaCoCo overlay. | JaCoCo agent on each service JVM; coverage `.exec` files drop under `testing-results/functional-equivalence/jacoco/`. No toxiproxy, no JVM heap caps. |
 
-The three profiles are mutually exclusive at runtime — `prod` and `benchmark` paths are never instrumented by FE; FE is never tuned by benchmark heap caps. See [`../AGENTS.md`](../AGENTS.md) §Testing for the full override matrix.
+The three profiles are mutually exclusive at runtime — `prod` and `benchmark` paths are never instrumented by FE; FE is never tuned by benchmark heap caps. See [`../testing/performance/README.md`](../testing/performance/README.md#benchmark-runtime-posture) for benchmark JVM defaults and experiment overrides.
 
 ### Spring Property Files
 
 `prod` is a deployment label, not a Spring property-file suffix. For app services, prod/default mode intentionally uses base `application.properties` with `SPRING_PROFILES_ACTIVE` empty. There is no `application-prod.properties`, and agents should not create one.
 
-Benchmark mode sets `SPRING_PROFILES_ACTIVE=benchmark`, so Spring loads base `application.properties` plus `application-benchmark.properties`. Put prod/default behaviour in base; put benchmark-only feature neutralisation and measured benchmark defaults in the benchmark overlay.
+Benchmark mode sets `SPRING_PROFILES_ACTIVE=benchmark`, so Spring loads base `application.properties` plus `application-benchmark.properties`. Put production/default ON values in base and benchmark-neutralising OFF values and measured knobs in the benchmark overlay. Base also applies beneath functional-equivalence unless a test resource shadows it; the FE JaCoCo overlay is not a reason to create a prod property file. Use env vars for topology, secrets, and per-run experimental values. The literal feature-gating contract is documented in [`../backend/README.md`](../backend/README.md#configuration-and-feature-gating).
 
 ## Ports
 
-Mapped 1:1 container/host:
+Host-facing ports are listed below. Service HTTP ports map 1:1 in Compose; each Postgres container listens internally on 5432 and Redis on 6379. Native-local infrastructure uses the listed host ports directly.
 
 | Component | Port |
 |---|---:|
@@ -144,4 +161,27 @@ Mapped 1:1 container/host:
 - [`../ARCHITECTURE.md`](../ARCHITECTURE.md) — services, ports, invariants.
 - [`../testing/README.md`](../testing/README.md) — what each profile is exercised by.
 - [`../SECURITY.md`](../SECURITY.md) — trusted-network assumptions, secrets, certificates, and reporting.
-- [`../AGENTS.md`](../AGENTS.md) — env-var matrix, JVM-flag overrides, KNOWLEDGE PRESERVE notes.
+- [`../AGENTS.md`](../AGENTS.md) — project-wide agent rules. Benchmark execution details live in [`../testing/performance/README.md`](../testing/performance/README.md).
+
+### SonarQube Cloud in GitHub Actions
+
+The `SonarQube Cloud quality gate` CI job scans both backend stacks and the
+frontend as one project (`andreizb_tweebyte` in organization `andreizb`).
+It imports JaCoCo coverage under exact repository-relative Java paths so files
+shared by name across the async and reactive stacks are not confused; frontend
+coverage comes from Vitest LCOV. Local Sonar verification is unchanged.
+
+To switch this project from automatic to CI-based analysis, store the analysis
+token directly as the GitHub repository Actions secret `SONAR_TOKEN`; do not
+send it in a message or commit it. On SonarQube Cloud, turn off automatic
+analysis for **Tweebyte only** just before validating the first CI run.
+The organization and project keys are public and are already in the scan
+configuration. On plans supporting scoped organization tokens, grant only
+Execute analysis on Tweebyte. The OSS plan instead requires a personal Sonar
+token with the permissions of its issuer; prefer an issuer restricted to
+analysis of this project where practical.
+
+The CI job runs on main and same-repository pull requests, excluding
+Dependabot. Publication remains separately controlled by the existing job and
+security gates. Check the first CI run and the SonarQube Cloud project for a
+completed quality gate and imported coverage before relying on it.

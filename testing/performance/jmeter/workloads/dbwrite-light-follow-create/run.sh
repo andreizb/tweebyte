@@ -66,9 +66,8 @@ cd "$REPO"
 export JAVA_HOME=/opt/homebrew/Cellar/sdkman-cli/5.19.0/libexec/candidates/java/21.0.7-tem
 
 # Shared cleanup contract — see testing/performance/lib/cleanup.sh.
-# Sets the abort trap (INT/TERM → rm -rf partial result dirs) and exposes the
-# helpers that run_stack uses after each bench: cleanup_raw_samples (delete
-# .jtl on success), remove_partial_result_dir (rm -rf on per-stack failure).
+# Registers this sweep so drivers clean only their own aggregated results.
+# Interrupted or failed runs are preserved for diagnosis.
 # Operator can preserve raw samples with KEEP_RAW=1 ./run.sh ...
 source "$REPO/testing/performance/lib/cleanup.sh"
 source "$REPO/testing/performance/lib/topology.sh"
@@ -163,16 +162,7 @@ run_stack() {
 
   local status=$?
 
-  # Find the result dir run_bench just produced. On success: aggregate is
-  # already in cells.csv → drop the raw .jtl bulk (~1 GB/cell at conc=1000).
-  # On failure: the partial dir is junk → remove it entirely.
-  local result_dir
-  result_dir=$(find_latest_result_dir "$REPO" "jmeter" "$WORKLOAD")
-  if [[ $status -eq 0 ]]; then
-    cleanup_raw_samples "$result_dir"
-  else
-    remove_partial_result_dir "$result_dir"
-  fi
+  # The driver cleans its exact registered result after aggregation.
 
   echo "[$(date)] ----- $stack: bench exit=$status, bringing stack down -----"
   topology_stop_stack "$stack" "${apps[@]}"
@@ -200,7 +190,5 @@ if topology_uses_native_infra; then
   topology_infra_down
 fi
 
-# Sweep finished — drop the marker so any post-completion INT/TERM (e.g.,
-# during the operator's terminal-close after a long canonical) doesn't trip
-# the abort trap and delete the cleaned-up result dirs.
+# Sweep finished — release the registry once its writers have exited.
 cleanup_sweep_finish

@@ -27,7 +27,7 @@ Each service follows a layered package structure under `ro.tweebyte.<service>`: 
   - `tweet-service` uses Redis as a fallback for the followed-id feed cache.
   - `interaction-service` caches `following`/`followed`, recommendations, popular-users, popular-hashtags, and user-summary.
   - Containers reach Redis at `redis:6379`. The host-published port is `localhost:63790`.
-  - The `benchmark` profile connects interaction-service direct to plaintext `redis:6379` — the measured path. The **toxiproxy** Redis proxy on `26379` stays defined-and-idle for future latency / fault injection; opt in by exporting `INTERACTION_CACHE_HOST=toxiproxy INTERACTION_CACHE_PORT=26379`.
+  - Benchmark interaction-service connects directly to plaintext Redis: `localhost:63790` for the retained `native-local` measurements and for `local-app`, or `redis:6379` under `all-docker`. The **toxiproxy** Redis proxy on `26379` stays defined-and-idle for future latency / fault injection; opt in by exporting `INTERACTION_CACHE_HOST=toxiproxy INTERACTION_CACHE_PORT=26379`.
 
 ## Inter-service communication
 
@@ -36,7 +36,7 @@ All cross-service HTTP is wrapped in per-service client classes — `UserClient`
 - **Async** uses Spring `RestClient` (synchronous, blocking) for all inter-service calls.
 - **Reactive** uses `WebClient` returning `Mono` / `Flux`, with Resilience4j circuit breakers in front of cache-miss fan-out.
 
-The async stack runs cross-service fan-out on a **bounded** executor (`httpClientExecutor`, `Executors.newFixedThreadPool` + unbounded task queue) sized to the downstream HTTP pool it feeds — `app.concurrency.http-client.pool-size` (512, = total downstream connections). DB CRUD runs on a second bounded pool, `ioExecutor` (`app.concurrency.io.pool-size`, 256, = the DB pool). Both saturate by queueing and waiting — never rejecting, never OOMing. The AI-streaming `streamExecutor` is a bounded `ThreadPoolExecutor` with an explicit reject policy (`app.concurrency.stream.pool-size`, default 200, swept up to 1600 in the AI-streaming benchmark). The reactive stack runs everything on the Netty event-loop group.
+The async stack runs cross-service fan-out on a fixed-size executor (`httpClientExecutor`, `Executors.newFixedThreadPool` + unbounded task queue) sized to the downstream HTTP pool it feeds — `app.concurrency.http-client.pool-size` (512, = total downstream connections). DB CRUD runs on a second fixed-size pool, `ioExecutor` (`app.concurrency.io.pool-size`, 256, = the DB pool). Both queue work at saturation; fixed worker counts do not prevent an unbounded task queue from exhausting memory. The AI-streaming `streamExecutor` is a bounded `ThreadPoolExecutor` with an explicit reject policy (`app.concurrency.stream.pool-size`, default 200, swept up to 1600 in the AI-streaming benchmark). The reactive stack runs everything on the Netty event-loop group.
 
 ## Frontend
 
@@ -98,7 +98,7 @@ The infrastructure compose file provisions an out-of-band observability stack an
 
 ## Deployment profiles
 
-Three compose profiles share the same topology and differ only in instrumentation. The canonical entry point is `./run.sh runtime up <stack> <profile>`.
+Three deployment labels select security/features, JVM tuning, and instrumentation as described below. Benchmark application topology is chosen independently. The Compose entry point is `./run.sh runtime up <stack> <profile>`.
 
 | Profile | Purpose | Side effects |
 |---|---|---|
@@ -142,7 +142,7 @@ These are load-bearing for the benchmark study; do not break them silently.
 
 ## Related docs
 
-- [`AGENTS.md`](AGENTS.md) — agent workflow, full env-var matrix, pinned versions, AI-streaming workload internals.
+- [`AGENTS.md`](AGENTS.md) — project-wide agent rules and conditional documentation routing. Benchmark operations, recorded pins, and AI-streaming details live in [`testing/performance/README.md`](testing/performance/README.md).
 - [`backend/README.md`](backend/README.md) — backend module layout and development commands.
 - [`frontend/README.md`](frontend/README.md) — frontend structure, runtime configuration, and development commands.
 - [`deployment/README.md`](deployment/README.md) — runtime commands and compose-file layout.

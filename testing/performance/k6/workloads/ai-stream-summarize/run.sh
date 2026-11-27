@@ -774,7 +774,7 @@ PY
 
   cd "$REPO"
   # Pin the build/run JDK to the rig's sdkman Temurin 21 (matches the other four workload
-  # run.sh scripts and the AGENTS.md pinned-versions table). Without this the default sdkman
+  # run.sh scripts and the performance README's pinned-versions table). Without this the default sdkman
   # `current` symlink resolves to JDK 25, which the service Lombok/Mockito toolchain rejects.
   # Never brew-install a JDK — the pinned 21 already exists under sdkman.
   export JAVA_HOME=/opt/homebrew/Cellar/sdkman-cli/5.19.0/libexec/candidates/java/21.0.7-tem

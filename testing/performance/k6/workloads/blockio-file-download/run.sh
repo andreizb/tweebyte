@@ -140,13 +140,7 @@ run_stack() {
 
   local status=$?
 
-  local result_dir
-  result_dir=$(find_latest_result_dir "$REPO" "k6" "$WORKLOAD")
-  if [[ $status -eq 0 ]]; then
-    cleanup_raw_samples "$result_dir"
-  else
-    remove_partial_result_dir "$result_dir"
-  fi
+  # The driver cleans its exact registered result after aggregation.
 
   echo "[$(date)] ----- $stack: bench exit=$status, bringing stack down -----"
   topology_stop_stack "$stack" user-service

@@ -12,6 +12,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+source "${SCRIPT_DIR}/../lib/cleanup.sh"
 WORKLOADS_ROOT="${SCRIPT_DIR}/workloads"
 RESULTS_ROOT="${RESULTS_ROOT:-${REPO_ROOT}/testing-results/performance/jmeter}"
 
@@ -675,6 +676,7 @@ run_one_cell() {
     -Jsearch_terms_file="${SEARCH_TERMS_FILE:-}" \
     >/dev/null &
   local jmeter_pid=$!
+  cleanup_track_writer "$jmeter_pid"
 
   local samp_pid=""
   if [[ "$COLLECT_RESOURCES" == "1" ]]; then
@@ -685,6 +687,7 @@ run_one_cell() {
       fi
     ) &
     samp_pid=$!
+    cleanup_track_writer "$samp_pid"
   fi
 
   wait "$jmeter_pid" || true
@@ -749,6 +752,7 @@ main() {
 
   mkdir -p "$RESULTS_ROOT"
   OUT_DIR="$(mktemp -d "${RESULTS_ROOT}/results_${WORKLOAD}_$(date +%Y%m%d_%H%M%S)_XXXXXX")"
+  cleanup_result_init "$OUT_DIR" jmeter "$RUNS" "${CONCURRENCY_LIST[*]}"
   {
     echo "benchmark_topology=${BENCHMARK_TOPOLOGY}"
     echo "benchmark_infra_topology=${BENCHMARK_INFRA_TOPOLOGY}"
@@ -768,6 +772,7 @@ main() {
   done
 
   print_final_recap
+  cleanup_result_complete
   echo "Done. Logs in: $OUT_DIR"
 }
 

@@ -58,6 +58,17 @@ jobs:
           pmd:check
           spotbugs:check
 
+      - name: Package Maven POM metadata for Trivy
+        run: python3 .github/scripts/maven-pom-cache.py export "$HOME/.m2/repository" "$RUNNER_TEMP/maven-poms.zip"
+
+      - name: Upload Maven POM metadata
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: maven-poms-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/maven-poms.zip
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -97,6 +108,17 @@ jobs:
           pmd:check
           spotbugs:check
 
+      - name: Package Maven POM metadata for Trivy
+        run: python3 .github/scripts/maven-pom-cache.py export "$HOME/.m2/repository" "$RUNNER_TEMP/maven-poms.zip"
+
+      - name: Upload Maven POM metadata
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: maven-poms-functional
+          path: ${{ runner.temp }}/maven-poms.zip
+          if-no-files-found: error
+          retention-days: 1
+
   frontend:
     name: frontend (lint/test/build)
     runs-on: ubuntu-latest
@@ -128,32 +150,57 @@ jobs:
       - name: Production build
         run: npm run build
 
-  sonarcloud:
-    name: sonarcloud (${{ matrix.module }})
+  integrations:
+    name: Check optional CI/CD integrations
     runs-on: ubuntu-latest
-    needs: build-test-lint
+    permissions: {}
+    outputs:
+      sonar: ${{ steps.config.outputs.sonar }}
+      publish_images: ${{ steps.config.outputs.publish_images }}
+    steps:
+      - name: Check required settings without printing values
+        id: config
+        env:
+          SONAR_ELIGIBLE: ${{ github.repository == 'andreizb/tweebyte' && github.actor != 'dependabot[bot]' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository)) }}
+          PUBLISH_ELIGIBLE: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+          SONAR_CONFIGURED: ${{ secrets.SONAR_TOKEN != '' }}
+          PUBLISH_ENABLED: ${{ vars.PUBLISH_IMAGES == 'true' }}
+        run: |
+          report() {
+            local integration=$1 enabled=$2 reason=$3
+            printf '%s=%s\n' "$integration" "$enabled" >> "$GITHUB_OUTPUT"
+            printf -- '- **%s**: %s\n' "$integration" "$reason" >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          if [[ "$SONAR_ELIGIBLE" != true ]]; then
+            report sonar false 'Skipped outside Tweebyte main and trusted same-repository PRs.'
+          elif [[ "$SONAR_CONFIGURED" == true ]]; then
+            report sonar true 'Configured; quality gates will run.'
+          else
+            report sonar false 'Not configured; requires the SONAR_TOKEN repository Actions secret.'
+          fi
+
+          if [[ "$PUBLISH_ELIGIBLE" != true ]]; then
+            report publish_images false 'Image publication is not allowed for this event.'
+          elif [[ "$PUBLISH_ENABLED" == true ]]; then
+            report publish_images true 'GHCR publication is enabled; publishing and signing require the build and security gates to pass.'
+          else
+            report publish_images false 'GHCR publication is disabled. Set the repository Actions variable PUBLISH_IMAGES=true to opt in.'
+          fi
+
+  sonarcloud:
+    name: SonarQube Cloud quality gate
+    runs-on: ubuntu-latest
+    needs: [build-test-lint, frontend, integrations]
     permissions:
       contents: read
-    # Sonar needs a token; skip cleanly on forks where the secret is absent.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    strategy:
-      fail-fast: false
-      matrix:
-        module:
-          - backend/async/gateway-service
-          - backend/async/user-service
-          - backend/async/tweet-service
-          - backend/async/interaction-service
-          - backend/reactive/gateway-service
-          - backend/reactive/user-service
-          - backend/reactive/tweet-service
-          - backend/reactive/interaction-service
+    if: needs.integrations.outputs.sonar == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Full history gives Sonar accurate new-code / blame data.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
@@ -162,94 +209,202 @@ jobs:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           cache: maven
 
-      - name: Cache SonarCloud packages
-        uses: actions/cache@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          path: ~/.sonar/cache
-          key: sonar-${{ runner.os }}
-          restore-keys: sonar-${{ runner.os }}
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Build with coverage and run SonarCloud scan
-        working-directory: ${{ matrix.module }}
+      - name: Generate backend bytecode, JaCoCo reports and analysis classpath
+        run: |
+          for module in backend/{async,reactive}/{gateway,user,tweet,interaction}-service; do
+            (
+              cd "$module"
+              ./mvnw -B -ntp verify dependency:build-classpath \
+                -Dmdep.outputFile=target/sonar-classpath.txt
+            )
+          done
+
+      - name: Generate frontend coverage
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test -- --coverage.reporter=lcov
+
+      - name: Prepare monorepo scanner properties and coverage
+        run: python3 .github/scripts/prepare-sonar-coverage.py
+
+      - name: Scan and enforce SonarQube Cloud quality gate
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: >-
-          ./mvnw -B -ntp
-          verify
-          org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
-          -Dsonar.host.url=https://sonarcloud.io
-          -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
-          -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}-$(echo '${{ matrix.module }}' | tr '/' '-')
-          -Dsonar.qualitygate.wait=true
+        with:
+          args: >
+            -Dproject.settings=testing-results/sonar/scan.properties
+            -Dsonar.qualitygate.wait=true
 
   security:
     name: security (trivy + owasp + sbom)
     runs-on: ubuntu-latest
-    needs: build-test-lint
+    needs: [build-test-lint, functional-equivalence-lint]
     permissions:
       contents: read
       security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: ${{ env.JAVA_DISTRIBUTION }}
-          cache: maven
+
+      - name: Download same-run Maven POM metadata
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: maven-poms-*
+          path: ${{ runner.temp }}/maven-poms
+
+      - name: Restore Maven POM metadata for Trivy
+        id: maven-poms
+        run: python3 .github/scripts/maven-pom-cache.py restore "$RUNNER_TEMP/maven-poms" "$HOME/.m2/repository"
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
+        if: "!cancelled() && steps.maven-poms.outcome == 'success'"
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: v0.76.2
           scan-type: fs
           scan-ref: .
           format: sarif
           output: trivy-fs.sarif
           severity: CRITICAL,HIGH
+          limit-severities-for-sarif: true
           ignore-unfixed: true
           exit-code: '1'
 
       - name: Upload Trivy SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: "!cancelled() && hashFiles('trivy-fs.sarif') != ''"
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-fs
 
-      - name: OWASP Dependency-Check
-        uses: dependency-check/Dependency-Check_Action@3.3.0
+      - name: Get UTC date
+        if: "!cancelled()"
+        id: owasp-date
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore OWASP vulnerability data
+        if: "!cancelled()"
+        id: owasp-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
-          project: tweebyte
-          path: .
-          format: SARIF
-          args: >-
-            --scan backend/async --scan backend/reactive
-            --failOnCVSS 7
-            --nvdApiKey ${{ secrets.NVD_API_KEY }}
+          path: ${{ runner.temp }}/dependency-check-data
+          key: owasp-13.0.0-${{ secrets.NVD_API_KEY != '' && 'api' || 'mirror' }}-${{ runner.os }}-${{ steps.owasp-date.outputs.day }}
+          restore-keys: owasp-13.0.0-${{ secrets.NVD_API_KEY != '' && 'api' || 'mirror' }}-${{ runner.os }}-
+
+      - name: Install verified OWASP Dependency-Check CLI
+        if: "!cancelled()"
+        id: owasp-install
+        env:
+          DEPENDENCY_CHECK_VERSION: '13.0.0'
+          DEPENDENCY_CHECK_SHA256: 44d920d1ec03e948df862a253f0912782a31b9beee8a7c8895b9cb95760176ed
+        run: |
+          archive="$RUNNER_TEMP/dependency-check.zip"
+          curl --fail --show-error --silent --location --retry 3 \
+            --proto '=https' --proto-redir '=https' \
+            "https://github.com/dependency-check/DependencyCheck/releases/download/v${DEPENDENCY_CHECK_VERSION}/dependency-check-${DEPENDENCY_CHECK_VERSION}-release.zip" \
+            --output "$archive"
+          printf '%s  %s\n' "$DEPENDENCY_CHECK_SHA256" "$archive" | sha256sum --check --strict
+          unzip -q "$archive" -d "$RUNNER_TEMP"
+
+      - name: Update verified OWASP vulnerability data
+        if: "!cancelled() && steps.owasp-install.outcome == 'success'"
+        id: owasp-update
+        shell: bash
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          data="$RUNNER_TEMP/dependency-check-data"
+          mkdir -p "$data"
+          update_args=(--data "$data")
+          if [[ -n "$NVD_API_KEY" ]]; then
+            if [[ ! "$NVD_API_KEY" =~ ^[A-Za-z0-9-]+$ ]]; then
+              echo '::error::NVD_API_KEY is not in the expected alphanumeric/hyphen format.'
+              exit 1
+            fi
+            properties="$(mktemp "$RUNNER_TEMP/dependency-check.XXXXXX")"
+            trap 'rm -f -- "$properties"' EXIT
+            printf 'nvd.api.key=%s\n' "$NVD_API_KEY" > "$properties"
+            update_args+=(--propertyfile "$properties")
+          else
+            # Upstream Dependency-Check's documented, best-effort mirror.
+            mirror='https://dependency-check.github.io/DependencyCheck_Builder/nvd_cache'
+            meta="$(curl --fail --show-error --silent --location --max-time 20 --max-filesize 65536 \
+              --proto '=https' --proto-redir '=https' "$mirror/nvdcve-modified.meta")"
+            modified="$(printf '%s\n' "$meta" | tr -d '\r' | sed -n 's/^lastModifiedDate://p')"
+            if [[ ! "$modified" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$ ]]; then
+              echo '::error::NVD feed freshness metadata is missing or malformed.'
+              exit 1
+            fi
+            age=$(( $(date -u +%s) - $(date -u --date "$modified" +%s) ))
+            if (( age < -300 || age > 172800 )); then
+              echo '::error::NVD feed timestamp is invalid or more than 48 hours old.'
+              exit 1
+            fi
+            echo '::notice::Using the fresh upstream Dependency-Check NVD feed; NVD_API_KEY is not configured.'
+            update_args+=(--nvdDatafeed "$mirror/nvdcve-{0}.json.gz" --nvdValidForHours 0)
+          fi
+          unset NVD_API_KEY
+          # Do not let an update failure be hidden by scanning stale local data.
+          "$RUNNER_TEMP/dependency-check/bin/dependency-check.sh" --updateonly "${update_args[@]}"
+
+      - name: Cache verified OWASP vulnerability data
+        if: "!cancelled() && steps.owasp-update.outcome == 'success' && steps.owasp-cache.outputs.cache-hit != 'true'"
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ runner.temp }}/dependency-check-data
+          key: owasp-13.0.0-${{ secrets.NVD_API_KEY != '' && 'api' || 'mirror' }}-${{ runner.os }}-${{ steps.owasp-date.outputs.day }}
+
+      - name: OWASP Dependency-Check
+        if: "!cancelled() && steps.owasp-update.outcome == 'success'"
+        shell: bash
+        run: |
+          mkdir -p reports
+          "$RUNNER_TEMP/dependency-check/bin/dependency-check.sh" --noupdate \
+            --project tweebyte --scan backend/async --scan backend/reactive \
+            --format SARIF --out reports \
+            --data "$RUNNER_TEMP/dependency-check-data" --failOnCVSS 7
 
       - name: Upload OWASP SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: "!cancelled() && hashFiles('reports/dependency-check-report.sarif') != ''"
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4
         with:
           sarif_file: reports/dependency-check-report.sarif
           category: owasp-dependency-check
 
       - name: Generate CycloneDX SBOM (Syft)
-        uses: anchore/sbom-action@v0.17.7
+        if: "!cancelled()"
+        uses: anchore/sbom-action@dfcb83b97731532d72be422cbc51ee64adb6fd56 # v0.24.4
         with:
           path: .
           format: cyclonedx-json
           artifact-name: sbom.cyclonedx.json
+          upload-release-assets: false
 
   build-sign-push:
     name: image build + cosign sign + push (${{ matrix.service }} / ${{ matrix.stack }})
     runs-on: ubuntu-latest
-    needs: [build-test-lint, functional-equivalence-lint, frontend, security]
-    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+    needs: [build-test-lint, functional-equivalence-lint, frontend, security, integrations]
+    if: ${{ needs.integrations.outputs.publish_images == 'true' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
     permissions:
       contents: read
+      packages: write
       # cosign keyless OIDC token.
       id-token: write
     strategy:
@@ -260,6 +415,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -267,17 +424,36 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@v3.7.0
 
-      - name: Log in to Docker Hub
+      - name: Compute GHCR image name
+        id: image
+        shell: bash
+        env:
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          SERVICE: ${{ matrix.service }}
+          STACK: ${{ matrix.stack }}
+          LC_ALL: C
+        run: |
+          owner="$(printf '%s' "$REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          if [[ ! "$owner" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+            echo '::error::Invalid repository owner for GHCR.'
+            exit 1
+          fi
+          printf 'name=ghcr.io/%s/tweebyte-%s-%s\n' "$owner" "$SERVICE" "$STACK" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Compute image metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/tweebyte-${{ matrix.service }}-${{ matrix.stack }}
+          images: ${{ steps.image.outputs.name }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           tags: |
             type=sha,format=long
             type=ref,event=tag
@@ -297,6 +473,6 @@ jobs:
       - name: Cosign keyless sign
         env:
           COSIGN_EXPERIMENTAL: "1"
-          IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/tweebyte-${{ matrix.service }}-${{ matrix.stack }}
+          IMAGE: ${{ steps.image.outputs.name }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: cosign sign --yes "${IMAGE}@${DIGEST}"
